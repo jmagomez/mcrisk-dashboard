@@ -1,0 +1,10 @@
+# Versoes minimas testadas. Fixe-as (==) se precisar de reprodutibilidade
+# estrita entre maquinas: resultados de MLE e geracao pseudoaleatoria podem
+# variar entre versoes de NumPy/SciPy.
+numpy>=1.24
+scipy>=1.10
+pandas>=2.0
+streamlit>=1.30
+plotly>=5.18
+openpyxl>=3.1
+pytest>=7.4
