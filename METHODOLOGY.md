@@ -151,7 +151,7 @@ qualquer chamada fora da lista branca. A avaliação ocorre com
 `__builtins__` vazio.
 
 São 15 vetores de ataque testados em `test_formula.py`, e mais 6 repetidos
-через a interface em `test_ui.py` — porque bloquear no motor não basta se a
+pela interface em `test_ui.py` — porque bloquear no motor não basta se a
 tela não exibir o erro e continuar permitindo rodar.
 
 A avaliação é **vetorizada**: a expressão é calculada uma vez sobre arrays de
