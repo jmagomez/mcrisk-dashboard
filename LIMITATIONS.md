@@ -104,7 +104,7 @@ Comparado ao @RISK e a ferramentas equivalentes, faltam aqui:
   complexa além de `se(cond, a, b)`.
 - Divisões por zero e logaritmos de números não positivos produzem valores não
   finitos. Eles são **descartados** das estatísticas, o que enviesa o resultado
-  se a fração não for desprizível. O app informa a fração.
+  se a fração não for desprezível. O app informa a fração.
 
 ### Sensibilidade
 
