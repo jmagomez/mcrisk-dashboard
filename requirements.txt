@@ -1,10 +1,17 @@
-# Versoes minimas testadas. Fixe-as (==) se precisar de reprodutibilidade
-# estrita entre maquinas: resultados de MLE e geracao pseudoaleatoria podem
-# variar entre versoes de NumPy/SciPy.
+# Versoes minimas REAIS, verificadas contra as notas de versao.
+#
+# streamlit >= 1.51 nao e folga: o app usa `width="stretch"` em
+# st.plotly_chart, que so existe a partir da 1.51.0 (29/10/2025).
+# st.dataframe(width=...) veio antes, na 1.49.0 (26/08/2025). Instalar uma
+# versao anterior faz o app quebrar no primeiro grafico.
+#
+# Fixe as versoes com == se precisar de reprodutibilidade estrita entre
+# maquinas: resultados de MLE e geracao pseudoaleatoria podem variar entre
+# versoes de NumPy/SciPy.
 numpy>=1.24
 scipy>=1.10
 pandas>=2.0
-streamlit>=1.30
+streamlit>=1.51
 plotly>=5.18
 openpyxl>=3.1
 pytest>=7.4
