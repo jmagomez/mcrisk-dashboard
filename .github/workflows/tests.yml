@@ -22,3 +22,11 @@ jobs:
       - run: pip install -r requirements.txt
       - name: Rodar testes
         run: pytest -q
+      - name: Verificar que o app carrega
+        run: |
+          python -c "
+          from streamlit.testing.v1 import AppTest
+          at = AppTest.from_file('app.py', default_timeout=180).run()
+          assert not at.exception, [e.value for e in at.exception]
+          print('app carregou sem excecoes')
+          "
