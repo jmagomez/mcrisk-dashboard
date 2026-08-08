@@ -139,15 +139,33 @@ clássico `s/√n` deixa de ser válido (Stein, 1987). O app avisa disso e ofere
 ## Testes
 
 ```bash
-pytest -q            # 168 testes
+pytest -q            # 210 testes
 ```
 
-Cobrem: momentos teóricos vs. amostrais de todas as 21 distribuições,
-monotonicidade das ppf, preservação exata das marginais sob Iman-Conover,
-recuperação da correlação alvo, ganho de variância do LHS, ausência de viés,
-cobertura empírica dos intervalos de confiança, recuperação de parâmetros no
-ajuste, calibração dos testes de aderência, e 15 vetores de ataque contra o
-avaliador de fórmulas.
+Duas camadas, com propósitos diferentes:
+
+**168 testes de motor** (`tests/test_distributions.py`, `test_sampling.py`,
+`test_correlation.py`, `test_formula.py`, `test_engine_and_stats.py`,
+`test_fitting.py`). Cobrem momentos teóricos vs. amostrais das 21
+distribuições, monotonicidade das ppf, preservação exata das marginais sob
+Iman-Conover, recuperação da correlação alvo, ganho de variância do LHS,
+ausência de viés, cobertura empírica dos intervalos de confiança, recuperação
+de parâmetros no ajuste, calibração dos testes de aderência e 15 vetores de
+ataque contra o avaliador de fórmulas.
+
+**42 testes de interface** (`tests/test_ui.py`). Dirigem o app de ponta a ponta
+com `streamlit.testing.v1.AppTest`: clicam nos botões, preenchem os campos,
+rodam a simulação e conferem os números que aparecem na tela contra a solução
+analítica. Também verificam que as ressalvas metodológicas chegam ao usuário —
+não basta estarem documentadas aqui.
+
+> **Por que essa segunda camada existe.** Um teste que apenas carregava o app
+> vazio passava sem problemas. Ao dirigir a interface de verdade, os testes
+> encontraram um travamento: duas variáveis com a mesma distribuição e os
+> mesmos parâmetros geravam prévias idênticas, o Streamlit derivava o mesmo ID
+> automático para os dois elementos e a página inteira caía. É um cenário
+> banal — dois custos iguais, duas atividades iguais. Corrigido, com teste de
+> regressão que falha na versão anterior.
 
 ---
 
@@ -164,7 +182,7 @@ mcrisk/
   sensitivity.py     índices de sensibilidade e tornado
   fitting.py         MLE, AIC/BIC, K-S e A-D com bootstrap
 app.py               interface Streamlit
-tests/               168 testes
+tests/               210 testes (168 de motor + 42 de interface)
 ```
 
 ---
