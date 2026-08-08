@@ -150,7 +150,9 @@ indexação, lambdas, comprehensions, atribuições, literais não numéricos e
 qualquer chamada fora da lista branca. A avaliação ocorre com
 `__builtins__` vazio.
 
-São 15 vetores de ataque testados em `test_formula.py`.
+São 15 vetores de ataque testados em `test_formula.py`, e mais 6 repetidos
+через a interface em `test_ui.py` — porque bloquear no motor não basta se a
+tela não exibir o erro e continuar permitindo rodar.
 
 A avaliação é **vetorizada**: a expressão é calculada uma vez sobre arrays de
 tamanho n, não n vezes sobre escalares.
@@ -199,7 +201,7 @@ divergência é informação sobre a estrutura de dependência.
   índices monotônicos conseguem explicar. Abaixo de 0,7 o app avisa que o
   tornado pode ordenar mal as variáveis e sugere índices de Sobol. Caso de
   teste explícito: para `a * b` com `a`, `b` simétricos, o R² fica abaixo de
-  0,5 e o aviso dispara.
+  0,5 e o aviso dispara — verificado tanto no motor quanto na tela.
 - **VIF máximo** (fator de inflação de variância). Acima de 10 — regra de bolso
   de Belsley, Kuh & Welsch (1980) — o app avisa que os SRRC ficam instáveis e a
   atribuição de importância entre variáveis colineares é ambígua por
@@ -290,7 +292,9 @@ desvios na cauda mudam completamente o VaR.
 
 Toda a aleatoriedade vem de um único `numpy.random.Generator` (PCG64)
 construído a partir da semente informada. Mesma semente + mesma especificação
-produz resultado idêntico bit a bit — há teste com `np.array_equal`.
+produz resultado idêntico bit a bit — há teste com `np.array_equal` no motor e,
+na interface, um teste que confere que duas execuções exibem exatamente os
+mesmos números na tela.
 
 As replicações usam sementes `seed + r·7919` (primo) para afastar os fluxos.
 
@@ -304,7 +308,9 @@ máquinas.
 
 ## 9. Cobertura de testes
 
-168 testes, organizados por tipo de garantia:
+210 testes, em duas camadas.
+
+### Camada 1 — motor (168 testes)
 
 | Arquivo | O que garante |
 |---|---|
@@ -314,6 +320,33 @@ máquinas.
 | `test_formula.py` | Correção aritmética; 15 vetores de ataque bloqueados; sanitização de nomes |
 | `test_engine_and_stats.py` | Soma de normais vs. solução analítica; efeito da correlação na variância; **cobertura empírica** dos ICs; ganho do LHS; identificação da variável dominante com contribuições de variância conhecidas; disparo dos avisos de R² baixo e VIF alto |
 | `test_fitting.py` | Recuperação de parâmetros; AIC prefere o modelo gerador; K-S e A-D conferidos contra o SciPy; **calibração do p-valor** sob H₀; poder do teste |
+
+### Camada 2 — interface (42 testes)
+
+`test_ui.py` dirige o aplicativo de ponta a ponta com
+`streamlit.testing.v1.AppTest`: clica em "Adicionar variável", preenche
+rótulos e parâmetros, escreve a fórmula, clica em "Rodar simulação" e lê as
+métricas renderizadas. Garante que:
+
+- os números **exibidos na tela** batem com a solução analítica (média,
+  desvio, P5/P50/P95, VaR, CVaR), e não apenas os retornados pelo motor;
+- as ressalvas metodológicas aparecem para o usuário — o aviso de que `s/√n`
+  não vale sob LHS, o aviso de Sobol quando o R² é baixo, o aviso de que a
+  reamostragem empírica não extrapola;
+- entradas inválidas produzem mensagem de erro e **bloqueiam** o botão de
+  rodar, em vez de derrubar a página;
+- tentativas de injeção de código na fórmula são barradas na interface;
+- os três botões de exportação aparecem após a simulação.
+
+**Por que essa camada existe.** Um teste que apenas carregava o app vazio
+passava. Ao dirigir a interface de verdade, os testes encontraram um
+travamento real: duas variáveis com a mesma distribuição e os mesmos
+parâmetros produziam gráficos de prévia idênticos, o Streamlit derivava o
+mesmo ID automático para os dois elementos e levantava
+`StreamlitDuplicateElementId`, derrubando a página. O cenário é banal — dois
+custos iguais, duas atividades iguais. O teste de regressão
+(`test_duas_variaveis_identicas_nao_derrubam_o_app`) foi verificado contra a
+versão anterior do código, onde falha.
 
 ---
 
