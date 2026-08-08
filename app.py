@@ -83,8 +83,14 @@ def variaveis_validas() -> list[Variable]:
     return out
 
 
-def previa_distribuicao(var: Variable, altura: int = 200) -> None:
-    """Histograma rapido da marginal, para conferencia visual."""
+def previa_distribuicao(var: Variable, chave: str, altura: int = 200) -> None:
+    """Histograma rapido da marginal, para conferencia visual.
+
+    `chave` precisa ser unica por variavel: duas variaveis com a MESMA
+    distribuicao e os MESMOS parametros geram graficos identicos, e o
+    Streamlit derivaria o mesmo ID automatico para ambos, o que levanta
+    StreamlitDuplicateElementId e derruba a pagina.
+    """
     try:
         u = (np.arange(1, 5001) - 0.5) / 5000.0
         x = var.ppf(u)
@@ -107,7 +113,7 @@ def previa_distribuicao(var: Variable, altura: int = 200) -> None:
         bargap=0.02,
     )
     c1, c2 = st.columns([3, 2])
-    c1.plotly_chart(fig, width="stretch")
+    c1.plotly_chart(fig, width="stretch", key=f"previa_graf_{chave}")
     with c2:
         linhas = {
             "media": float(np.mean(x)),
@@ -120,6 +126,7 @@ def previa_distribuicao(var: Variable, altura: int = 200) -> None:
             pd.DataFrame({"estatistica": linhas.keys(), "valor": linhas.values()}),
             hide_index=True,
             width="stretch",
+            key=f"previa_tab_{chave}",
         )
         st.caption("Previa deterministica (quantis igualmente espacados), n=5.000.")
 
@@ -373,7 +380,7 @@ with aba_vars:
                 if errs:
                     st.error("  \n".join(f"• {e}" for e in errs), icon="\U0001F6AB")
                 else:
-                    previa_distribuicao(var)
+                    previa_distribuicao(var, chave=str(v["id"]))
             else:
                 st.caption("Informe um rotulo para habilitar a previa.")
 
