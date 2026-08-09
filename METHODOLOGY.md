@@ -32,6 +32,11 @@ consequências que sustentam o resto do desenho:
 
 Teste: `test_distributions.py::test_ppf_e_monotona_nao_decrescente`
 
+O mesmo pacote `mcrisk/` alimenta as duas interfaces: o app Streamlit
+(`app.py`) e a versão de navegador (`index.html`, via Pyodide/WebAssembly).
+Nenhuma linha do motor é reescrita em JavaScript — precisamente para que os
+números das duas não possam divergir da suíte de testes.
+
 ---
 
 ## 2. Amostragem
@@ -118,6 +123,32 @@ do alvo. Aplicamos a inversa antes da fatoração de Cholesky.
 O teste correspondente falha se a correção deixar de ajudar — ou seja, o padrão
 do código está protegido por evidência, não por opinião.
 
+### Como uma matriz preenchida pela metade é lida
+
+A interface pede que o usuário preencha **apenas um dos triângulos**. Isso
+levanta a questão de como completar o outro lado, e a resposta ingênua está
+errada de um jeito perigoso.
+
+Tirar a média com o lado vazio — `(C + C.T)/2` — divide por dois toda
+correlação digitada: quem pede 0,8 recebe 0,4. A simulação roda, a matriz passa
+em todas as validações (continua simétrica, diagonal 1, positiva semidefinida),
+e o resultado sai plausível e errado. Nada avisa.
+
+`correlation.mirror_triangle` aplica, para cada par (i, j):
+
+| Situação | Resultado |
+|---|---|
+| só um lado preenchido | espelha o lado preenchido |
+| os dois iguais | usa o valor |
+| os dois preenchidos e diferentes | usa o de cima e **reporta conflito** |
+| nenhum preenchido | 0 |
+
+Um zero explícito é indistinguível de "não preenchi" numa grade numérica. A
+escolha é tratar zero como "não preenchi", que é o caso comum; quem quiser
+fixar zero de verdade preenche os dois lados com zero, e nenhum conflito é
+reportado. A ambiguidade genuína — dois valores diferentes — nunca é resolvida
+em silêncio.
+
 ### Matrizes inconsistentes
 
 Uma matriz de correlação precisa ser positiva semidefinida; nem toda
@@ -128,6 +159,13 @@ impossível.
 O app detecta isso pelo menor autovalor e, se o usuário prosseguir, projeta na
 matriz de correlação PSD mais próxima pelo método de projeções alternadas de
 **Higham (2002)**, avisando que as correlações efetivas diferirão das pedidas.
+
+### Verificação do que saiu
+
+Depois de simular, a aba de resultados mostra uma tabela **pedida vs. obtida**
+por par de variáveis. Iman-Conover atinge o alvo de forma aproximada, e o
+reparo PSD pode afastar ainda mais o resultado do pedido — o usuário precisa
+poder conferir, não confiar.
 
 ### O que este método não dá
 
@@ -178,6 +216,16 @@ risco** — não satisfaz subaditividade (Artzner et al., 1999).
 **Validação por cobertura empírica:** os testes verificam que ~95% dos
 intervalos de 95% contêm o valor verdadeiro, ao longo de 200 replicações
 independentes, tanto para a média quanto para o percentil 95.
+
+### Uma armadilha do SciPy
+
+`scipy.stats.spearmanr` devolve uma **matriz** quando recebe três ou mais
+colunas, e um **escalar** quando recebe exatamente duas. `achieved_spearman`
+normaliza os dois casos para uma matriz k × k. Sem isso, qualquer chamador que
+indexe `[i, j]` quebra no caso de duas variáveis — que foi exatamente o que
+aconteceu quando a tabela "pedida vs. obtida" foi implementada. O defeito
+sobreviveu à suíte original porque todos os testes de correlação usavam três
+variáveis.
 
 ---
 
@@ -308,7 +356,7 @@ máquinas.
 
 ## 9. Cobertura de testes
 
-210 testes, em duas camadas.
+236 testes, em três camadas.
 
 ### Camada 1 — motor (168 testes)
 
@@ -338,15 +386,26 @@ métricas renderizadas. Garante que:
 - tentativas de injeção de código na fórmula são barradas na interface;
 - os três botões de exportação aparecem após a simulação.
 
-**Por que essa camada existe.** Um teste que apenas carregava o app vazio
-passava. Ao dirigir a interface de verdade, os testes encontraram um
-travamento real: duas variáveis com a mesma distribuição e os mesmos
-parâmetros produziam gráficos de prévia idênticos, o Streamlit derivava o
-mesmo ID automático para os dois elementos e levantava
-`StreamlitDuplicateElementId`, derrubando a página. O cenário é banal — dois
-custos iguais, duas atividades iguais. O teste de regressão
-(`test_duas_variaveis_identicas_nao_derrubam_o_app`) foi verificado contra a
-versão anterior do código, onde falha.
+### Camada 3 — auditoria (26 testes)
+
+`test_auditoria.py` cobre quatro defeitos encontrados numa revisão linha a
+linha do código. Cada um foi executado **contra a versão defeituosa** antes da
+correção, para confirmar que o teste realmente pega o problema. Um teste de bug
+que já passa no código defeituoso não vale nada.
+
+| Defeito | Como se manifestava | Por que passou despercebido |
+|---|---|---|
+| Correlação dividida por dois | `(C + C.T)/2` sobre uma matriz preenchida em um triângulo só. Pedir 0,8 usava 0,4 | Não quebrava nada. A matriz continuava válida e o app exibia "internamente consistente" |
+| Duas variáveis idênticas derrubavam a página | Prévias iguais → mesmo ID automático no Streamlit → `StreamlitDuplicateElementId` | O teste anterior só carregava o app vazio |
+| Resultado do ajuste sumia da tela | Bloco dependia do retorno de `st.button`; qualquer rerun o apagava, inclusive o do próprio seletor "Inspecionar ajuste" | Nenhum teste interagia com a tela depois de clicar em "Ajustar" |
+| `achieved_spearman` devolvia matriz 1×1 | `scipy.stats.spearmanr` retorna escalar com exatamente duas colunas | Todos os testes de correlação usavam três variáveis |
+
+O primeiro é o mais instrutivo, e é a razão de esta camada existir. Os outros
+três quebram de forma visível — alguém percebe. O primeiro produzia números
+plausíveis e errados, em silêncio, exatamente o modo de falha que o
+`LIMITATIONS.md` argumenta ser o mais perigoso em análise de risco. Foi
+encontrado lendo o código e conferindo o que a legenda da tela prometia contra
+o que a linha fazia, não rodando o app.
 
 ---
 
