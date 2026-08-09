@@ -410,12 +410,12 @@ async function iniciar() {
 function addVar() {
   vars_.push({ id: proxId++, label: "", dist: "pert", params: {},
                values: "", probs: "", data: "" });
-  render();
+  renderVars();
 }
 
 function removeVar(id) {
   vars_ = vars_.filter(v => v.id !== id);
-  render();
+  renderVars();
 }
 
 function validasVars() {
@@ -443,7 +443,12 @@ function duplicados() {
   return [...new Set(rot.filter(r => rot.filter(x => x === r).length > 1))];
 }
 
-function render() {
+// RECONSTRUCAO COMPLETA.
+// So pode ser chamada em mudancas estruturais: adicionar variavel, remover
+// variavel, trocar a distribuicao (que troca os campos de parametro).
+// Chamar isto a cada tecla destroi o proprio campo que esta sendo digitado,
+// o foco se perde e o usuario nao consegue escrever mais de um caractere.
+function renderVars() {
   const cont = $("vars");
   cont.innerHTML = "";
   vars_.forEach((v, idx) => {
@@ -476,8 +481,6 @@ function render() {
       if (spec.reference) campos += `<p class="dica">Referência: ${esc(spec.reference)}</p>`;
     }
 
-    const errs = errosVar(v);
-    const nome = v.label ? sanitizar(v.label, idx + 1) : "";
     div.innerHTML = `
       <div class="topo">
         <div><label>Rótulo</label>
@@ -489,10 +492,38 @@ function render() {
           </select></div>
         <div style="flex:0 0 auto"><button class="mini" data-remove="${v.id}">remover</button></div>
       </div>
-      ${nome ? `<p class="dica" style="margin-top:-6px">Nome na fórmula: <code>${esc(nome)}</code></p>` : ""}
+      <p class="dica" id="nome-${v.id}" style="margin-top:-6px"></p>
       ${campos}
-      ${errs.length ? `<div class="erro">${errs.map(esc).join("<br>")}</div>` : ""}`;
+      <div id="msg-${v.id}"></div>`;
     cont.appendChild(div);
+  });
+  atualizarDerivados();
+}
+
+// ATUALIZACAO LEVE, sem tocar nos campos de entrada.
+// Roda a cada tecla. So mexe em elementos que o usuario nao esta digitando.
+function atualizarDerivados() {
+  vars_.forEach((v, idx) => {
+    const cap = $("nome-" + v.id);
+    if (cap) {
+      cap.innerHTML = v.label
+        ? `Nome na fórmula: <code>${esc(sanitizar(v.label, idx + 1))}</code>` : "";
+    }
+    const msg = $("msg-" + v.id);
+    if (msg) {
+      const errs = errosVar(v);
+      let html = errs.length ? `<div class="erro">${errs.map(esc).join("<br>")}</div>` : "";
+      if (v.dist === "discrete_custom") {
+        const ps = parseLista(v.probs);
+        const soma = ps.reduce((a, b) => a + b, 0);
+        if (ps.length && Math.abs(soma - 1) > 1e-9) {
+          html += `<div class="aviso">As probabilidades somam ${fmt(soma)}, não 1.
+            Elas serão normalizadas, o que altera os valores efetivos em relação ao
+            que você digitou.</div>`;
+        }
+      }
+      msg.innerHTML = html;
+    }
   });
 
   const dups = duplicados();
@@ -509,35 +540,52 @@ function render() {
 }
 
 document.addEventListener("input", (e) => {
-  const id = e.target.dataset.id;
-  if (!id) return;
-  const v = vars_.find(x => x.id === Number(id));
+  const ds = e.target.dataset || {};
+  if (ds.corr !== undefined) return;      // tratado no listener da correlacao
+  if (!ds.id) return;
+  const v = vars_.find(x => x.id === Number(ds.id));
   if (!v) return;
-  if (e.target.dataset.param) {
-    const raw = e.target.value;
-    v.params[e.target.dataset.param] = raw === "" ? null : parseFloat(raw);
-    render();
-  } else if (e.target.dataset.campo) {
-    v[e.target.dataset.campo] = e.target.value;
-    if (e.target.dataset.campo === "dist") v.params = {};
-    render();
+
+  if (ds.campo === "dist") {
+    v.dist = e.target.value;
+    v.params = {};
+    renderVars();                          // mudanca estrutural: campos trocam
+    return;
   }
+  if (ds.param) {
+    const raw = e.target.value;
+    v.params[ds.param] = raw === "" ? null : parseFloat(raw);
+  } else if (ds.campo) {
+    v[ds.campo] = e.target.value;
+  }
+  atualizarDerivados();                    // sem reconstruir os campos
 });
 
 document.addEventListener("click", (e) => {
-  if (e.target.dataset.remove) removeVar(Number(e.target.dataset.remove));
+  if (e.target.dataset && e.target.dataset.remove) removeVar(Number(e.target.dataset.remove));
 });
 
 // ---------------------------------------------------------------- correlacao
 
 let corrM = {};
+let corrAssinatura = null;
 
 function renderCorr() {
   const vv = validasVars();
   const sec = $("seccorr");
-  if (vv.length < 2 || duplicados().length) { sec.classList.add("oculto"); return; }
+  if (vv.length < 2 || duplicados().length) {
+    sec.classList.add("oculto");
+    corrAssinatura = null;
+    return;
+  }
   sec.classList.remove("oculto");
   const nomes = vv.map(v => v.label);
+  const assin = JSON.stringify(nomes);
+  if (assin === corrAssinatura) return;    // nada mudou: nao reconstroi a grade
+  const ativo = document.activeElement;
+  if (ativo && ativo.dataset && ativo.dataset.corr !== undefined) return;
+  corrAssinatura = assin;
+
   let html = "<table><tr><th></th>" + nomes.map(n => `<th>${esc(n)}</th>`).join("") + "</tr>";
   for (let i = 0; i < nomes.length; i++) {
     html += `<tr><th>${esc(nomes[i])}</th>`;
@@ -554,11 +602,12 @@ function renderCorr() {
 }
 
 document.addEventListener("input", (e) => {
-  if (!e.target.dataset.corr) return;
+  const ds = e.target.dataset || {};
+  if (ds.corr === undefined) return;
   const raw = e.target.value;
-  if (raw === "") delete corrM[e.target.dataset.corr];
-  else corrM[e.target.dataset.corr] = parseFloat(raw);
-  checarConflitos();
+  if (raw === "") delete corrM[ds.corr];
+  else corrM[ds.corr] = parseFloat(raw);
+  checarConflitos();                       // nao reconstroi a grade
 });
 
 function matrizCorr() {
