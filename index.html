@@ -1,0 +1,760 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mcrisk — Monte Carlo para Análise de Risco</title>
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+<script src="https://cdn.jsdelivr.net/pyodide/v0.26.4/full/pyodide.js"></script>
+<style>
+  :root{
+    --azul:#2563eb; --vermelho:#dc2626; --verde:#059669; --cinza:#6b7280;
+    --borda:#e5e7eb; --fundo:#f9fafb; --texto:#111827;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+       color:var(--texto);background:#fff;line-height:1.5;font-size:15px}
+  header{border-bottom:1px solid var(--borda);padding:20px 24px;background:var(--fundo)}
+  header h1{margin:0 0 4px;font-size:20px}
+  header p{margin:0;color:var(--cinza);font-size:14px}
+  main{max-width:1180px;margin:0 auto;padding:24px}
+  section{border:1px solid var(--borda);border-radius:10px;padding:18px;margin-bottom:18px}
+  section > h2{margin:0 0 4px;font-size:16px}
+  section > .sub{margin:0 0 14px;color:var(--cinza);font-size:13.5px}
+  label{display:block;font-size:13px;font-weight:600;margin-bottom:4px}
+  input,select,textarea{width:100%;padding:8px 10px;border:1px solid var(--borda);
+    border-radius:6px;font-size:14px;font-family:inherit;background:#fff}
+  input:focus,select:focus,textarea:focus{outline:2px solid var(--azul);outline-offset:-1px}
+  button{background:var(--azul);color:#fff;border:0;border-radius:6px;padding:9px 16px;
+    font-size:14px;font-weight:600;cursor:pointer;font-family:inherit}
+  button:disabled{background:#9ca3af;cursor:not-allowed}
+  button.sec{background:#fff;color:var(--texto);border:1px solid var(--borda)}
+  button.mini{padding:4px 9px;font-size:13px;background:#fff;color:var(--vermelho);
+    border:1px solid var(--borda)}
+  .linha{display:flex;gap:12px;flex-wrap:wrap}
+  .linha > div{flex:1;min-width:130px}
+  .grade{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+  .var{border:1px solid var(--borda);border-radius:8px;padding:14px;margin-bottom:12px;background:var(--fundo)}
+  .var .topo{display:flex;gap:12px;align-items:flex-end;margin-bottom:10px}
+  .var .topo > div:first-child{flex:0 0 210px}
+  .var .topo > div:nth-child(2){flex:1}
+  .metricas{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:14px 0}
+  .metrica{border:1px solid var(--borda);border-radius:8px;padding:12px}
+  .metrica .rot{font-size:12px;color:var(--cinza);margin-bottom:2px}
+  .metrica .val{font-size:19px;font-weight:600;font-variant-numeric:tabular-nums}
+  table{width:100%;border-collapse:collapse;font-size:13.5px;font-variant-numeric:tabular-nums}
+  th,td{text-align:right;padding:6px 8px;border-bottom:1px solid var(--borda)}
+  th:first-child,td:first-child{text-align:left}
+  th{font-size:12px;color:var(--cinza);font-weight:600}
+  .aviso{border-left:3px solid #d4a72c;background:#fff8c5;padding:10px 14px;
+    border-radius:0 6px 6px 0;margin:10px 0;font-size:13.5px}
+  .erro{border-left:3px solid var(--vermelho);background:#fee2e2;padding:10px 14px;
+    border-radius:0 6px 6px 0;margin:10px 0;font-size:13.5px}
+  .ok{border-left:3px solid var(--verde);background:#dcfce7;padding:10px 14px;
+    border-radius:0 6px 6px 0;margin:10px 0;font-size:13.5px}
+  .nota{border-left:3px solid var(--azul);background:#eff6ff;padding:10px 14px;
+    border-radius:0 6px 6px 0;margin:10px 0;font-size:13.5px}
+  .dica{color:var(--cinza);font-size:12.5px;margin-top:6px}
+  code{background:#f3f4f6;padding:1px 5px;border-radius:4px;font-size:13px}
+  .graficos{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:820px){.graficos{grid-template-columns:1fr}}
+  #carregando{padding:40px 24px;text-align:center;color:var(--cinza)}
+  .barra{height:4px;background:var(--borda);border-radius:2px;overflow:hidden;
+    max-width:320px;margin:14px auto 0}
+  .barra > div{height:100%;background:var(--azul);width:30%;animation:desliza 1.4s ease-in-out infinite}
+  @keyframes desliza{0%{margin-left:-30%}100%{margin-left:100%}}
+  .oculto{display:none}
+  footer{border-top:1px solid var(--borda);padding:20px 24px;color:var(--cinza);font-size:13px;
+    max-width:1180px;margin:0 auto}
+  a{color:var(--azul)}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Simulação de Monte Carlo para Análise de Risco</h1>
+  <p>Roda inteiramente no seu navegador. Nenhum dado sai da sua máquina.</p>
+</header>
+
+<div id="carregando">
+  <div id="passo">Carregando o ambiente Python (Pyodide)…</div>
+  <div class="barra"><div></div></div>
+  <p style="font-size:13px;margin-top:16px;max-width:560px;margin-left:auto;margin-right:auto">
+    A primeira carga baixa Python, NumPy e SciPy compilados para WebAssembly —
+    cerca de 30&nbsp;MB. Pode levar de 20&nbsp;segundos a alguns minutos na primeira
+    vez, dependendo da conexão. Depois fica em cache.
+  </p>
+</div>
+
+<main id="app" class="oculto">
+
+  <div class="nota">
+    <strong>O que é isto.</strong> Versão de navegador do
+    <a href="https://github.com/jmagomez/mcrisk-dashboard" target="_blank">mcrisk</a>,
+    executando o <em>mesmo</em> pacote Python testado no repositório, via WebAssembly —
+    os números aqui não podem divergir da versão Streamlit. Esta página cobre
+    variáveis, correlação, fórmula e resultados. O ajuste de distribuições a dados
+    e as replicações independentes existem só na versão completa.
+    Leia <a href="https://github.com/jmagomez/mcrisk-dashboard/blob/main/LIMITATIONS.md" target="_blank">LIMITATIONS.md</a>
+    antes de usar em decisão real.
+  </div>
+
+  <section>
+    <h2>Configuração</h2>
+    <p class="sub">O erro de amostragem cai com 1/√n. Mais iterações não corrigem premissas erradas.</p>
+    <div class="linha">
+      <div>
+        <label for="iteracoes">Iterações</label>
+        <input type="number" id="iteracoes" value="10000" min="100" max="500000" step="1000">
+      </div>
+      <div>
+        <label for="metodo">Método de amostragem</label>
+        <select id="metodo">
+          <option value="lhs">Latin Hypercube (recomendado)</option>
+          <option value="mc">Monte Carlo simples</option>
+          <option value="lhs_median">Latin Hypercube (mediana do estrato)</option>
+        </select>
+      </div>
+      <div>
+        <label for="seed">Semente aleatória</label>
+        <input type="number" id="seed" value="12345" min="0">
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>1 · Variáveis de entrada</h2>
+    <p class="sub">Nenhum valor vem preenchido. Os números precisam vir da sua evidência.</p>
+    <div id="vars"></div>
+    <button id="addvar">➕ Adicionar variável</button>
+    <div id="varmsg"></div>
+  </section>
+
+  <section id="seccorr" class="oculto">
+    <h2>2 · Correlação entre as entradas</h2>
+    <p class="sub">Correlação de posto (Spearman), imposta por Iman-Conover preservando as marginais.</p>
+    <label style="display:flex;align-items:center;gap:8px;font-weight:400">
+      <input type="checkbox" id="usarcorr" style="width:auto"> Aplicar correlação na simulação
+    </label>
+    <div id="corrgrade" style="margin-top:12px;overflow-x:auto"></div>
+    <p class="dica">Preencha apenas um dos triângulos — o lado preenchido é espelhado no outro.
+      Se você preencher os dois com valores diferentes, o app avisa em vez de escolher sozinho.</p>
+    <div id="corrmsg"></div>
+  </section>
+
+  <section>
+    <h2>3 · Fórmula da saída</h2>
+    <p class="sub">Expressão que combina as entradas no resultado de interesse.</p>
+    <div id="nomesdisp" class="dica" style="margin-bottom:8px"></div>
+    <input type="text" id="formula" placeholder="ex.: (preco - custo_unitario) * volume - custo_fixo">
+    <div id="formsg"></div>
+    <p class="dica">Funções: <code>se(cond,a,b)</code>, <code>min</code>, <code>max</code>,
+      <code>clip</code>, <code>abs</code>, <code>exp</code>, <code>log</code>, <code>sqrt</code>,
+      <code>round</code>, <code>floor</code>, <code>ceil</code>,
+      <code>desconto(taxa,periodo)</code>. A expressão é analisada com <code>ast</code>
+      e restrita a uma lista branca — não há <code>eval</code> cru.</p>
+    <div style="margin-top:14px">
+      <button id="rodar" disabled>▶ Rodar simulação</button>
+      <span id="status" class="dica" style="margin-left:10px"></span>
+    </div>
+  </section>
+
+  <section id="secres" class="oculto">
+    <h2>4 · Resultados</h2>
+    <div id="resavisos"></div>
+    <div class="metricas" id="metricas"></div>
+    <div class="graficos">
+      <div id="hist"></div>
+      <div id="cdf"></div>
+    </div>
+
+    <div class="linha" style="margin-top:18px;align-items:flex-start">
+      <div style="flex:2;min-width:300px">
+        <h3 style="font-size:14px;margin:0 0 8px">Percentis com IC de 95%</h3>
+        <table id="tabperc"></table>
+        <p class="dica">IC não paramétrico via estatísticas de ordem (método binomial).
+          Assume iterações independentes — o que não vale sob LHS.</p>
+      </div>
+      <div style="flex:1;min-width:230px">
+        <h3 style="font-size:14px;margin:0 0 8px">Medidas de cauda</h3>
+        <div>
+          <label for="alfa">Nível alfa</label>
+          <input type="number" id="alfa" value="0.05" min="0.01" max="0.25" step="0.01">
+        </div>
+        <div style="margin-top:8px">
+          <label for="lado">A perda está na cauda</label>
+          <select id="lado">
+            <option value="esq">esquerda (saída = ganho)</option>
+            <option value="dir">direita (saída = perda)</option>
+          </select>
+        </div>
+        <div class="metricas" style="grid-template-columns:1fr;margin-top:10px">
+          <div class="metrica"><div class="rot" id="rotvar">VaR</div><div class="val" id="valvar">—</div></div>
+          <div class="metrica"><div class="rot" id="rotcvar">CVaR</div><div class="val" id="valcvar">—</div></div>
+        </div>
+        <p class="dica">VaR não é medida coerente de risco — não é subaditivo
+          (Artzner et al., 1999). Leia junto com o CVaR.</p>
+      </div>
+    </div>
+
+    <div id="seccorrobt" class="oculto" style="margin-top:18px">
+      <h3 style="font-size:14px;margin:0 0 8px">Correlação pedida vs. obtida</h3>
+      <table id="tabcorr"></table>
+      <p class="dica">Iman-Conover atinge o alvo de forma aproximada. Diferenças grandes
+        indicam que a matriz precisou ser reparada por não ser positiva semidefinida.</p>
+    </div>
+
+    <div style="margin-top:18px">
+      <h3 style="font-size:14px;margin:0 0 8px">Sensibilidade</h3>
+      <div id="tornado"></div>
+      <table id="tabsens"></table>
+      <p class="dica" id="r2nota"></p>
+    </div>
+
+    <div style="margin-top:18px">
+      <button class="sec" id="baixarcsv">⬇ Baixar iterações (CSV)</button>
+      <button class="sec" id="baixarjson">⬇ Baixar especificação (JSON)</button>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <a href="https://github.com/jmagomez/mcrisk-dashboard" target="_blank">Código-fonte</a> ·
+  <a href="https://github.com/jmagomez/mcrisk-dashboard/blob/main/METHODOLOGY.md" target="_blank">Metodologia</a> ·
+  <a href="https://github.com/jmagomez/mcrisk-dashboard/blob/main/LIMITATIONS.md" target="_blank">Limitações</a> ·
+  MIT.
+  Sem afiliação com a Lumivero, proprietária do @RISK.
+</footer>
+
+<script>
+const PY_ARQUIVOS = ["__init__.py","distributions.py","sampling.py","correlation.py",
+                     "formula.py","engine.py","summary.py","sensitivity.py","fitting.py"];
+
+const COLA = `
+import json
+import numpy as np
+from mcrisk import distributions as dists
+from mcrisk import correlation as corr_mod
+from mcrisk import sensitivity, summary
+from mcrisk.engine import SimulationSpec, Variable, run
+from mcrisk.formula import validate_formula
+
+def _limpa(o):
+    if isinstance(o, dict):
+        return {k: _limpa(v) for k, v in o.items()}
+    if isinstance(o, (list, tuple)):
+        return [_limpa(v) for v in o]
+    if isinstance(o, (np.integer,)):
+        return int(o)
+    if isinstance(o, (float, np.floating)):
+        f = float(o)
+        return f if np.isfinite(f) else None
+    return o
+
+def catalogo():
+    out = []
+    for s in dists.list_distributions():
+        out.append({
+            "key": s.key, "label": s.label, "kind": s.kind,
+            "params": [{"name": p.name, "label": p.label,
+                        "default": p.default, "help": p.help} for p in s.params],
+            "notes": s.notes, "reference": s.reference,
+        })
+    for k, v in dists.SPECIAL_KINDS.items():
+        out.append({"key": k, "label": v, "kind": "special",
+                    "params": [], "notes": "", "reference": ""})
+    return json.dumps(_limpa(out))
+
+def validar(expr, nomes_json):
+    ok, msg = validate_formula(expr, json.loads(nomes_json))
+    return json.dumps({"ok": bool(ok), "msg": msg})
+
+def checar_variavel(v_json):
+    v = json.loads(v_json)
+    var = Variable(name=v["name"], label=v["label"], dist_key=v["dist"],
+                   params={k: float(x) for k, x in (v.get("params") or {}).items()
+                           if x is not None},
+                   values=v.get("values"), probs=v.get("probs"), data=v.get("data"))
+    return json.dumps(var.validate())
+
+def simular(payload_json):
+    p = json.loads(payload_json)
+    variaveis = []
+    for v in p["variaveis"]:
+        variaveis.append(Variable(
+            name=v["name"], label=v["label"], dist_key=v["dist"],
+            params={k: float(x) for k, x in (v.get("params") or {}).items()
+                    if x is not None},
+            values=v.get("values"), probs=v.get("probs"), data=v.get("data"),
+        ))
+
+    C = None
+    conflitos = []
+    if p.get("correlacao"):
+        C, conflitos = corr_mod.mirror_triangle(np.array(p["correlacao"], dtype=float))
+
+    spec = SimulationSpec(variables=variaveis, formula=p["formula"],
+                          iterations=int(p["iteracoes"]), method=p["metodo"],
+                          seed=int(p["seed"]), correlation=C)
+    res = run(spec)
+    y = res.output
+    yf = y[np.isfinite(y)]
+    d = summary.describe(y)
+    sres = sensitivity.analyze(res.inputs, res.output, res.labels)
+
+    alfa = float(p.get("alfa", 0.05))
+    baixo = bool(p.get("perda_esquerda", True))
+
+    perc = []
+    for q in summary.DEFAULT_PERCENTILES:
+        lo, hi = summary.quantile_ci(yf, q / 100.0)
+        perc.append({"p": "P" + str(q), "valor": d["P" + str(q)], "lo": lo, "hi": hi})
+
+    passo = max(1, int(yf.size // 20000))
+    saida = {
+        "n": int(res.n),
+        "rotulos": list(res.labels),
+        "stats": d,
+        "percentis": perc,
+        "var": summary.value_at_risk(yf, alfa, baixo),
+        "cvar": summary.conditional_value_at_risk(yf, alfa, baixo),
+        "erro_padrao": summary.mc_standard_error(y),
+        "amostra": yf[::passo].tolist(),
+        "sens": sres.as_records(),
+        "rank_r2": sres.rank_r2,
+        "avisos": list(res.notes) + list(sres.warnings),
+        "conflitos": [[int(i), int(j), float(a), float(b)] for i, j, a, b in conflitos],
+    }
+    if C is not None and len(res.names) > 1:
+        obt = corr_mod.achieved_spearman(res.inputs)
+        pares = []
+        for i in range(len(res.labels)):
+            for j in range(i + 1, len(res.labels)):
+                pares.append({"par": res.labels[i] + " x " + res.labels[j],
+                              "pedida": float(C[i, j]), "obtida": float(obt[i, j])})
+        saida["correlacao"] = pares
+
+    global ULTIMO
+    ULTIMO = {"inputs": res.inputs, "output": res.output, "labels": res.labels}
+    return json.dumps(_limpa(saida))
+
+def csv_iteracoes(nome_saida):
+    import io
+    buf = io.StringIO()
+    labels = ULTIMO["labels"]
+    buf.write(",".join([str(x) for x in labels] + [nome_saida]) + "\\n")
+    X, y = ULTIMO["inputs"], ULTIMO["output"]
+    for i in range(y.size):
+        linha = [repr(float(X[i, j])) for j in range(X.shape[1])] + [repr(float(y[i]))]
+        buf.write(",".join(linha) + "\\n")
+    return buf.getvalue()
+`;
+
+let py = null;
+let CATALOGO = [];
+let vars_ = [];
+let proxId = 1;
+let ultimoResultado = null;
+let ultimoPayload = null;
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"']/g, c =>
+  ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+function fmt(x, casas = 4) {
+  if (x === null || x === undefined || !isFinite(x)) return "—";
+  const a = Math.abs(x);
+  if (a !== 0 && (a < 1e-4 || a >= 1e7)) return x.toExponential(3);
+  return x.toLocaleString("pt-BR", { maximumSignificantDigits: casas });
+}
+
+function sanitizar(rotulo, i) {
+  let s = (rotulo || ("var" + i)).normalize("NFKD").replace(/[̀-ͯ]/g, "");
+  s = s.replace(/[^0-9a-zA-Z_]/g, "_").replace(/_+/g, "_").replace(/^_+|_+$/g, "");
+  if (!s) s = "var";
+  if (/^[0-9]/.test(s)) s = "v_" + s;
+  return s;
+}
+
+function parseLista(txt) {
+  if (!txt) return [];
+  return String(txt).split(/[,;\n\t]+/).map(s => parseFloat(s.trim()))
+    .filter(v => !isNaN(v));
+}
+
+// ---------------------------------------------------------------- inicializacao
+
+async function iniciar() {
+  $("passo").textContent = "Baixando Python (Pyodide)…";
+  py = await loadPyodide();
+  $("passo").textContent = "Instalando NumPy e SciPy…";
+  await py.loadPackage(["numpy", "scipy"]);
+  $("passo").textContent = "Carregando o pacote mcrisk…";
+  py.FS.mkdir("/mcrisk");
+  for (const f of PY_ARQUIVOS) {
+    const r = await fetch("./mcrisk/" + f);
+    if (!r.ok) throw new Error("não consegui baixar mcrisk/" + f);
+    py.FS.writeFile("/mcrisk/" + f, await r.text());
+  }
+  py.runPython("import sys; sys.path.insert(0, '/')");
+  py.runPython(COLA);
+  CATALOGO = JSON.parse(py.globals.get("catalogo")());
+  $("carregando").classList.add("oculto");
+  $("app").classList.remove("oculto");
+  addVar();
+}
+
+// ---------------------------------------------------------------- variaveis
+
+function addVar() {
+  vars_.push({ id: proxId++, label: "", dist: "pert", params: {},
+               values: "", probs: "", data: "" });
+  render();
+}
+
+function removeVar(id) {
+  vars_ = vars_.filter(v => v.id !== id);
+  render();
+}
+
+function validasVars() {
+  return vars_.filter(v => v.label && errosVar(v).length === 0);
+}
+
+function errosVar(v) {
+  if (!v.label) return [];
+  const payload = {
+    name: sanitizar(v.label), label: v.label, dist: v.dist,
+    params: v.dist === "discrete_custom" || v.dist === "empirical" ? {} : v.params,
+    values: v.dist === "discrete_custom" ? parseLista(v.values) : null,
+    probs: v.dist === "discrete_custom" ? parseLista(v.probs) : null,
+    data: v.dist === "empirical" ? parseLista(v.data) : null,
+  };
+  try {
+    return JSON.parse(py.globals.get("checar_variavel")(JSON.stringify(payload)));
+  } catch (e) {
+    return [String(e)];
+  }
+}
+
+function duplicados() {
+  const rot = validasVars().map(v => v.label);
+  return [...new Set(rot.filter(r => rot.filter(x => x === r).length > 1))];
+}
+
+function render() {
+  const cont = $("vars");
+  cont.innerHTML = "";
+  vars_.forEach((v, idx) => {
+    const spec = CATALOGO.find(s => s.key === v.dist);
+    const div = document.createElement("div");
+    div.className = "var";
+    let campos = "";
+    if (v.dist === "discrete_custom") {
+      campos = `<div class="linha">
+        <div><label>Valores (separados por vírgula)</label>
+          <input data-id="${v.id}" data-campo="values" value="${esc(v.values)}"
+                 placeholder="ex.: 0, 1000, 5000"></div>
+        <div><label>Probabilidades</label>
+          <input data-id="${v.id}" data-campo="probs" value="${esc(v.probs)}"
+                 placeholder="ex.: 0.7, 0.2, 0.1"></div></div>`;
+    } else if (v.dist === "empirical") {
+      campos = `<div><label>Série histórica</label>
+        <textarea rows="3" data-id="${v.id}" data-campo="data">${esc(v.data)}</textarea></div>
+        <div class="aviso">A reamostragem empírica NUNCA gera valores fora do mínimo/máximo
+        observados. Se o risco relevante está na cauda, este método o subestima por construção.</div>`;
+    } else if (spec) {
+      campos = `<div class="grade">` + spec.params.map(p => {
+        const val = v.params[p.name] !== undefined && v.params[p.name] !== null
+          ? v.params[p.name] : (p.default !== null && p.default !== undefined ? p.default : "");
+        return `<div><label title="${esc(p.help || "")}">${esc(p.label)}</label>
+          <input type="number" step="any" data-id="${v.id}" data-param="${p.name}"
+                 value="${val}" placeholder="obrigatório"></div>`;
+      }).join("") + `</div>`;
+      if (spec.notes) campos += `<div class="nota">${esc(spec.notes)}</div>`;
+      if (spec.reference) campos += `<p class="dica">Referência: ${esc(spec.reference)}</p>`;
+    }
+
+    const errs = errosVar(v);
+    const nome = v.label ? sanitizar(v.label, idx + 1) : "";
+    div.innerHTML = `
+      <div class="topo">
+        <div><label>Rótulo</label>
+          <input data-id="${v.id}" data-campo="label" value="${esc(v.label)}"
+                 placeholder="ex.: Preço unitário"></div>
+        <div><label>Distribuição</label>
+          <select data-id="${v.id}" data-campo="dist">
+            ${CATALOGO.map(s => `<option value="${s.key}"${s.key === v.dist ? " selected" : ""}>${esc(s.label)}</option>`).join("")}
+          </select></div>
+        <div style="flex:0 0 auto"><button class="mini" data-remove="${v.id}">remover</button></div>
+      </div>
+      ${nome ? `<p class="dica" style="margin-top:-6px">Nome na fórmula: <code>${esc(nome)}</code></p>` : ""}
+      ${campos}
+      ${errs.length ? `<div class="erro">${errs.map(esc).join("<br>")}</div>` : ""}`;
+    cont.appendChild(div);
+  });
+
+  const dups = duplicados();
+  $("varmsg").innerHTML = dups.length
+    ? `<div class="erro">Rótulos repetidos: ${dups.map(esc).join(", ")}. Rótulos iguais viram
+       o mesmo nome na fórmula — renomeie antes de continuar.</div>`
+    : (validasVars().length
+        ? `<div class="ok">${validasVars().length} variável(is) pronta(s): ` +
+          validasVars().map(v => `<code>${esc(sanitizar(v.label))}</code>`).join(", ") + `</div>`
+        : "");
+
+  renderCorr();
+  renderFormula();
+}
+
+document.addEventListener("input", (e) => {
+  const id = e.target.dataset.id;
+  if (!id) return;
+  const v = vars_.find(x => x.id === Number(id));
+  if (!v) return;
+  if (e.target.dataset.param) {
+    const raw = e.target.value;
+    v.params[e.target.dataset.param] = raw === "" ? null : parseFloat(raw);
+    render();
+  } else if (e.target.dataset.campo) {
+    v[e.target.dataset.campo] = e.target.value;
+    if (e.target.dataset.campo === "dist") v.params = {};
+    render();
+  }
+});
+
+document.addEventListener("click", (e) => {
+  if (e.target.dataset.remove) removeVar(Number(e.target.dataset.remove));
+});
+
+// ---------------------------------------------------------------- correlacao
+
+let corrM = {};
+
+function renderCorr() {
+  const vv = validasVars();
+  const sec = $("seccorr");
+  if (vv.length < 2 || duplicados().length) { sec.classList.add("oculto"); return; }
+  sec.classList.remove("oculto");
+  const nomes = vv.map(v => v.label);
+  let html = "<table><tr><th></th>" + nomes.map(n => `<th>${esc(n)}</th>`).join("") + "</tr>";
+  for (let i = 0; i < nomes.length; i++) {
+    html += `<tr><th>${esc(nomes[i])}</th>`;
+    for (let j = 0; j < nomes.length; j++) {
+      if (i === j) { html += `<td style="color:#9ca3af">1</td>`; continue; }
+      const chave = i + "_" + j;
+      const val = corrM[chave] !== undefined ? corrM[chave] : "";
+      html += `<td><input type="number" step="0.05" min="-1" max="1" style="width:88px"
+        data-corr="${chave}" value="${val}"></td>`;
+    }
+    html += "</tr>";
+  }
+  $("corrgrade").innerHTML = html + "</table>";
+}
+
+document.addEventListener("input", (e) => {
+  if (!e.target.dataset.corr) return;
+  const raw = e.target.value;
+  if (raw === "") delete corrM[e.target.dataset.corr];
+  else corrM[e.target.dataset.corr] = parseFloat(raw);
+  checarConflitos();
+});
+
+function matrizCorr() {
+  const k = validasVars().length;
+  const M = Array.from({ length: k }, (_, i) =>
+    Array.from({ length: k }, (_, j) => (i === j ? 1 : 0)));
+  for (const [chave, val] of Object.entries(corrM)) {
+    const [i, j] = chave.split("_").map(Number);
+    if (i < k && j < k && isFinite(val)) M[i][j] = val;
+  }
+  return M;
+}
+
+function checarConflitos() {
+  const M = matrizCorr();
+  const nomes = validasVars().map(v => v.label);
+  const conf = [];
+  for (let i = 0; i < M.length; i++)
+    for (let j = i + 1; j < M.length; j++)
+      if (Math.abs(M[i][j]) > 1e-9 && Math.abs(M[j][i]) > 1e-9 &&
+          Math.abs(M[i][j] - M[j][i]) > 1e-9)
+        conf.push(`${nomes[i]} × ${nomes[j]}: ${M[i][j]} acima, ${M[j][i]} abaixo`);
+  $("corrmsg").innerHTML = conf.length
+    ? `<div class="aviso">Valores conflitantes nos dois triângulos (será usado o de cima):
+       ${conf.map(esc).join("; ")}</div>` : "";
+}
+
+// ---------------------------------------------------------------- formula
+
+function renderFormula() {
+  const vv = validasVars();
+  const nomes = vv.map(v => sanitizar(v.label));
+  $("nomesdisp").innerHTML = nomes.length
+    ? "Disponíveis: " + nomes.map(n => `<code>${esc(n)}</code>`).join(" · ") : "";
+  const expr = $("formula").value.trim();
+  const dups = duplicados().length > 0;
+  let ok = false;
+  if (dups) {
+    $("formsg").innerHTML = `<div class="erro">Resolva os rótulos repetidos antes de rodar.</div>`;
+  } else if (!nomes.length) {
+    $("formsg").innerHTML = `<div class="nota">Defina ao menos uma variável válida.</div>`;
+  } else if (!expr) {
+    $("formsg").innerHTML = "";
+  } else {
+    const r = JSON.parse(py.globals.get("validar")(expr, JSON.stringify(nomes)));
+    ok = r.ok;
+    $("formsg").innerHTML = `<div class="${r.ok ? "ok" : "erro"}">${esc(r.msg)}</div>`;
+  }
+  $("rodar").disabled = !ok;
+}
+
+$("formula").addEventListener("input", renderFormula);
+$("addvar").addEventListener("click", addVar);
+
+// ---------------------------------------------------------------- rodar
+
+$("rodar").addEventListener("click", async () => {
+  const vv = validasVars();
+  $("status").textContent = "Simulando…";
+  $("rodar").disabled = true;
+  await new Promise(r => setTimeout(r, 30));
+  try {
+    const payload = {
+      variaveis: vv.map((v, i) => ({
+        name: sanitizar(v.label, i + 1), label: v.label, dist: v.dist,
+        params: (v.dist === "discrete_custom" || v.dist === "empirical") ? {} : v.params,
+        values: v.dist === "discrete_custom" ? parseLista(v.values) : null,
+        probs: v.dist === "discrete_custom" ? parseLista(v.probs) : null,
+        data: v.dist === "empirical" ? parseLista(v.data) : null,
+      })),
+      formula: $("formula").value.trim(),
+      iteracoes: Number($("iteracoes").value),
+      metodo: $("metodo").value,
+      seed: Number($("seed").value),
+      correlacao: $("usarcorr").checked ? matrizCorr() : null,
+      alfa: Number($("alfa").value),
+      perda_esquerda: $("lado").value === "esq",
+    };
+    ultimoPayload = payload;
+    const res = JSON.parse(py.globals.get("simular")(JSON.stringify(payload)));
+    ultimoResultado = res;
+    mostrar(res);
+    $("status").textContent = `Concluído: ${res.n.toLocaleString("pt-BR")} iterações.`;
+  } catch (e) {
+    $("status").textContent = "";
+    $("resavisos").innerHTML = `<div class="erro">Falha na simulação: ${esc(e.message || e)}</div>`;
+    $("secres").classList.remove("oculto");
+  }
+  $("rodar").disabled = false;
+});
+
+["alfa", "lado"].forEach(id => $(id).addEventListener("change", () => {
+  if (ultimoResultado) $("rodar").click();
+}));
+
+function mostrar(r) {
+  $("secres").classList.remove("oculto");
+  const s = r.stats;
+
+  const avisos = [...r.avisos];
+  r.conflitos.forEach(c => avisos.push(
+    `Correlação conflitante entre as posições ${c[0] + 1} e ${c[1] + 1}: ` +
+    `${c[2]} acima da diagonal, ${c[3]} abaixo. Foi usado o valor de cima.`));
+  if (s.assimetria !== null && Math.abs(s.assimetria) > 0.5) {
+    avisos.push(`A saída é assimétrica (assimetria = ${fmt(s.assimetria, 3)}). ` +
+      `A média não representa bem o caso típico; olhe a mediana e os percentis.`);
+  }
+  $("resavisos").innerHTML = avisos.map(a => `<div class="aviso">${esc(a)}</div>`).join("");
+
+  const metricas = [
+    ["Média", s.media], ["Desvio-padrão", s.desvio], ["P5", s.P5],
+    ["Mediana (P50)", s.P50], ["P95", s.P95], ["Mínimo", s.minimo],
+    ["Máximo", s.maximo], ["Assimetria", s.assimetria],
+    ["Curtose (excesso)", s.curtose_excesso], ["Coef. de variação", s.coef_variacao],
+  ];
+  $("metricas").innerHTML = metricas.map(([rot, val]) =>
+    `<div class="metrica"><div class="rot">${rot}</div><div class="val">${fmt(val)}</div></div>`
+  ).join("");
+
+  const layout = { margin: { l: 50, r: 10, t: 36, b: 40 }, height: 330,
+                   font: { family: "inherit", size: 12 }, showlegend: false };
+  Plotly.newPlot("hist", [{ x: r.amostra, type: "histogram", nbinsx: 60,
+    marker: { color: "#2563eb" }, opacity: 0.85 }],
+    { ...layout, title: "Histograma", bargap: 0.02 }, { displayModeBar: false, responsive: true });
+
+  const xs = [...r.amostra].sort((a, b) => a - b);
+  Plotly.newPlot("cdf", [{ x: xs, y: xs.map((_, i) => (i + 1) / xs.length),
+    type: "scatter", mode: "lines", line: { color: "#2563eb", width: 2 } }],
+    { ...layout, title: "Distribuição acumulada (CDF)", yaxis: { title: "P(X ≤ x)" } },
+    { displayModeBar: false, responsive: true });
+
+  $("tabperc").innerHTML = "<tr><th>percentil</th><th>valor</th><th>IC inf</th><th>IC sup</th></tr>" +
+    r.percentis.map(p => `<tr><td>${p.p}</td><td>${fmt(p.valor)}</td>` +
+      `<td>${fmt(p.lo)}</td><td>${fmt(p.hi)}</td></tr>`).join("");
+
+  const nivel = Math.round((1 - Number($("alfa").value)) * 100);
+  $("rotvar").textContent = `VaR ${nivel}%`;
+  $("rotcvar").textContent = `CVaR ${nivel}%`;
+  $("valvar").textContent = fmt(r.var);
+  $("valcvar").textContent = fmt(r.cvar);
+
+  if (r.correlacao) {
+    $("seccorrobt").classList.remove("oculto");
+    $("tabcorr").innerHTML = "<tr><th>par</th><th>pedida</th><th>obtida</th><th>diferença</th></tr>" +
+      r.correlacao.map(c => `<tr><td>${esc(c.par)}</td><td>${fmt(c.pedida, 3)}</td>` +
+        `<td>${fmt(c.obtida, 3)}</td><td>${fmt(c.obtida - c.pedida, 2)}</td></tr>`).join("");
+  } else {
+    $("seccorrobt").classList.add("oculto");
+  }
+
+  const sens = [...r.sens].sort((a, b) => Math.abs(b.srrc) - Math.abs(a.srrc));
+  Plotly.newPlot("tornado", [{
+    x: sens.map(v => v.srrc).reverse(), y: sens.map(v => v.variavel).reverse(),
+    type: "bar", orientation: "h",
+    marker: { color: sens.map(v => v.srrc < 0 ? "#dc2626" : "#2563eb").reverse() },
+  }], { ...layout, height: Math.max(220, 42 * sens.length + 60),
+        title: "Gráfico tornado (SRRC)" }, { displayModeBar: false, responsive: true });
+
+  $("tabsens").innerHTML =
+    "<tr><th>variável</th><th>Spearman</th><th>p-valor</th><th>SRRC</th><th>contrib. %</th></tr>" +
+    sens.map(v => `<tr><td>${esc(v.variavel)}</td><td>${fmt(v.spearman, 3)}</td>` +
+      `<td>${fmt(v.p_valor, 2)}</td><td>${fmt(v.srrc, 3)}</td>` +
+      `<td>${fmt(v.contrib_variancia_pct, 3)}</td></tr>`).join("");
+
+  $("r2nota").textContent =
+    `R² da regressão de postos = ${fmt(r.rank_r2, 3)}. É a fração do comportamento do ` +
+    `modelo que índices monótonos conseguem explicar. Com R² baixo o tornado pode ordenar ` +
+    `mal as variáveis — considere índices de Sobol, que este app não implementa.`;
+}
+
+// ---------------------------------------------------------------- exportar
+
+function baixar(nome, texto, tipo) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([texto], { type: tipo }));
+  a.download = nome;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+$("baixarcsv").addEventListener("click", () => {
+  if (!ultimoResultado) return;
+  baixar("simulacao_iteracoes.csv",
+         py.globals.get("csv_iteracoes")("Resultado"), "text/csv");
+});
+
+$("baixarjson").addEventListener("click", () => {
+  if (!ultimoPayload) return;
+  baixar("modelo.json", JSON.stringify(ultimoPayload, null, 2), "application/json");
+});
+
+// ----------------------------------------------------------------
+
+iniciar().catch(e => {
+  $("passo").innerHTML = `<div class="erro" style="text-align:left">Falha ao carregar: ${esc(e.message || e)}</div>`;
+});
+</script>
+</body>
+</html>
