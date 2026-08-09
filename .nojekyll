@@ -1,0 +1,6 @@
+# Este arquivo desliga o processamento Jekyll no GitHub Pages.
+#
+# Sem ele, o Jekyll ignora arquivos e pastas cujo nome comeca com "_", o que
+# inclui mcrisk/__init__.py. O resultado e que a pagina HTML carrega, o
+# Pyodide inicializa, e so entao a busca pelo pacote falha com 404 — um modo
+# de falha bem dificil de adivinhar sem testar a pagina publicada.
