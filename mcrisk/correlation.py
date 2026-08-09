@@ -248,12 +248,26 @@ def iman_conover(
 
 
 def achieved_spearman(X: np.ndarray) -> np.ndarray:
-    """Correlacao de Spearman efetivamente obtida na amostra."""
+    """Correlacao de Spearman obtida na amostra, sempre como matriz k x k.
+
+    CUIDADO COM O SCIPY: `stats.spearmanr` devolve uma MATRIZ quando recebe
+    tres ou mais colunas, mas um ESCALAR quando recebe exatamente duas.
+    Repassar isso adiante produz uma matriz 1x1 no caso k=2, e qualquer
+    chamador que indexe [i, j] quebra. A normalizacao abaixo existe so por
+    causa disso.
+    """
     X = np.asarray(X, dtype=float)
-    if X.shape[1] == 1:
+    if X.ndim != 2:
+        raise ValueError("X deve ser 2D (n_iteracoes x n_variaveis)")
+    k = X.shape[1]
+    if k == 1:
         return np.ones((1, 1))
-    rho = stats.spearmanr(X).statistic
-    return np.atleast_2d(np.asarray(rho, dtype=float))
+    rho = np.asarray(stats.spearmanr(X).statistic, dtype=float)
+    if rho.ndim == 0:  # k == 2
+        m = np.eye(2)
+        m[0, 1] = m[1, 0] = float(rho)
+        return m
+    return rho
 
 
 def correlation_error(
