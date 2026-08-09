@@ -83,6 +83,17 @@ def variaveis_validas() -> list[Variable]:
     return out
 
 
+def rotulos_duplicados(vv: list[Variable]) -> list[str]:
+    """Rotulos repetidos entre as variaveis validas.
+
+    Rotulos iguais viram o MESMO nome na formula, o que torna a expressao
+    ambigua, e quebram a grade de correlacao (que usa os rotulos como
+    cabecalho de coluna). Melhor barrar cedo, com mensagem clara.
+    """
+    nomes = [x.label for x in vv]
+    return sorted({n for n in nomes if nomes.count(n) > 1})
+
+
 def previa_distribuicao(var: Variable, chave: str, altura: int = 200) -> None:
     """Histograma rapido da marginal, para conferencia visual.
 
@@ -147,6 +158,7 @@ st.session_state.setdefault("corr_df", None)
 st.session_state.setdefault("usar_corr", False)
 st.session_state.setdefault("resultado", None)
 st.session_state.setdefault("replicas", None)
+st.session_state.setdefault("ajuste", None)
 st.session_state.setdefault("next_id", 1)
 
 
@@ -390,7 +402,17 @@ with aba_vars:
         st.rerun()
 
     vv = variaveis_validas()
-    if vv:
+    dups = rotulos_duplicados(vv)
+    if dups:
+        st.error(
+            "Rotulos repetidos: "
+            + ", ".join(f"`{d}`" for d in dups)
+            + ". Rotulos iguais viram o mesmo nome na formula, e a simulacao nao "
+            "teria como saber a qual das variaveis voce se refere. Renomeie "
+            "antes de continuar.",
+            icon="\U0001F6AB",
+        )
+    elif vv:
         st.success(
             f"{len(vv)} variavel(is) pronta(s): "
             + ", ".join(f"`{x.name}`" for x in vv),
@@ -405,8 +427,17 @@ with aba_vars:
 with aba_corr:
     st.subheader("Correlacao entre as entradas")
     vv = variaveis_validas()
+    dups = rotulos_duplicados(vv)
 
-    if len(vv) < 2:
+    if dups:
+        st.error(
+            "Ha rotulos repetidos ("
+            + ", ".join(f"`{d}`" for d in dups)
+            + "). Renomeie as variaveis na aba 1 para poder especificar "
+            "correlacoes.",
+            icon="\U0001F6AB",
+        )
+    elif len(vv) < 2:
         st.info("Defina ao menos duas variaveis validas para especificar correlacoes.")
     else:
         st.markdown(
@@ -450,13 +481,23 @@ with aba_corr:
         )
         st.session_state["corr_df"] = editado
         st.caption(
-            "Preencha apenas o triangulo superior ou inferior — a matriz e "
-            "simetrizada automaticamente. A diagonal e forcada em 1."
+            "Preencha apenas o triangulo superior ou inferior — o lado preenchido "
+            "e espelhado no outro. A diagonal e forcada em 1. Se voce preencher "
+            "os dois lados com valores diferentes, o app avisa em vez de escolher "
+            "por conta propria."
         )
 
-        C = editado.to_numpy(dtype=float)
-        C = (C + C.T) / 2.0
-        np.fill_diagonal(C, 1.0)
+        C, conflitos = corr_mod.mirror_triangle(editado.to_numpy(dtype=float))
+        if conflitos:
+            st.warning(
+                "Valores conflitantes nos dois triangulos (sera usado o valor "
+                "acima da diagonal): "
+                + "; ".join(
+                    f"{nomes[i]} x {nomes[j]}: {a:.3f} acima, {b:.3f} abaixo"
+                    for i, j, a, b in conflitos
+                ),
+                icon="⚠️",
+            )
         problemas = corr_mod.check_correlation_matrix(C)
         if problemas:
             st.error("  \n".join(f"• {p}" for p in problemas), icon="\U0001F6AB")
@@ -472,6 +513,11 @@ with aba_corr:
             )
         elif st.session_state["usar_corr"]:
             st.success("Matriz valida e internamente consistente.", icon="✅")
+            st.markdown("**Matriz efetivamente usada (apos o espelhamento):**")
+            st.dataframe(
+                pd.DataFrame(np.round(C, 4), index=nomes, columns=nomes),
+                width="stretch",
+            )
 
 
 # ===========================================================================
@@ -481,9 +527,18 @@ with aba_corr:
 with aba_modelo:
     st.subheader("Formula da saida")
     vv = variaveis_validas()
+    dups = rotulos_duplicados(vv)
 
-    if not vv:
+    if dups:
+        st.error(
+            "Renomeie os rotulos repetidos na aba 1 antes de rodar: "
+            + ", ".join(f"`{d}`" for d in dups),
+            icon="\U0001F6AB",
+        )
+        ok = False
+    elif not vv:
         st.info("Defina ao menos uma variavel valida na aba 1.")
+        ok = False
     else:
         st.markdown(
             "Escreva a expressao que combina as entradas no resultado de "
@@ -531,10 +586,8 @@ with aba_modelo:
             C = None
             if st.session_state["usar_corr"] and st.session_state["corr_df"] is not None:
                 Cm = st.session_state["corr_df"].to_numpy(dtype=float)
-                Cm = (Cm + Cm.T) / 2.0
-                np.fill_diagonal(Cm, 1.0)
                 if Cm.shape == (len(vv), len(vv)):
-                    C = Cm
+                    C, _ = corr_mod.mirror_triangle(Cm)
 
             spec = SimulationSpec(
                 variables=vv,
@@ -601,6 +654,32 @@ with aba_result:
                 f"deveriam olhar os percentis, nao o valor esperado.",
                 icon="⚠️",
             )
+
+        # ---------------- correlacao pedida vs. obtida ----------------
+        if res.spec.correlation is not None and len(res.names) > 1:
+            with st.expander("Correlacao pedida vs. obtida"):
+                obtida = corr_mod.achieved_spearman(res.inputs)
+                alvo = np.asarray(res.spec.correlation, dtype=float)
+                linhas = []
+                for i in range(len(res.labels)):
+                    for j in range(i + 1, len(res.labels)):
+                        linhas.append(
+                            {
+                                "par": f"{res.labels[i]} × {res.labels[j]}",
+                                "pedida": alvo[i, j],
+                                "obtida": obtida[i, j],
+                                "diferenca": obtida[i, j] - alvo[i, j],
+                            }
+                        )
+                st.dataframe(
+                    pd.DataFrame(linhas), hide_index=True, width="stretch"
+                )
+                st.caption(
+                    "Iman-Conover atinge a correlacao alvo de forma aproximada. "
+                    "Diferencas na terceira casa sao normais; diferencas grandes "
+                    "indicam que a matriz precisou ser reparada por nao ser "
+                    "positiva semidefinida."
+                )
 
         # ---------------- erro de simulacao ----------------
         st.subheader("Quanto disso e ruido de simulacao?")
@@ -859,6 +938,11 @@ with aba_result:
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             width="stretch",
         )
+        if len(df) > 100_000:
+            st.caption(
+                f"O Excel traz as primeiras 100.000 de {len(df):,} iteracoes. "
+                f"O CSV traz todas."
+            )
 
         modelo = {
             "iteracoes": res.spec.iterations,
@@ -967,6 +1051,10 @@ with aba_ajuste:
             ),
         )
 
+        # O resultado precisa sobreviver aos reruns: `st.button` so devolve True
+        # no rerun do proprio clique. Sem guardar em session_state, qualquer
+        # interacao posterior — inclusive o seletor "Inspecionar ajuste", que
+        # faz parte deste bloco — apagaria a tabela inteira da tela.
         if st.button("Ajustar", type="primary") and candidatas:
             with st.spinner("Ajustando e reamostrando..."):
                 resultados = fitting.fit_many(
@@ -975,6 +1063,22 @@ with aba_ajuste:
                     bootstrap=int(b),
                     rng=np.random.default_rng(seed),
                 )
+            st.session_state["ajuste"] = {
+                "resultados": resultados,
+                "dados": list(dados),
+                "candidatas": list(candidatas),
+                "bootstrap": int(b),
+            }
+
+        aj = st.session_state.get("ajuste")
+        if aj is not None and aj["dados"] != list(dados):
+            st.info(
+                "Os dados mudaram desde o ultimo ajuste. Clique em **Ajustar** "
+                "para recalcular.",
+                icon="ℹ️",
+            )
+        elif aj is not None:
+            resultados = aj["resultados"]
             if not resultados:
                 st.error("Nenhum ajuste convergiu para as candidatas selecionadas.")
             else:
@@ -1016,11 +1120,12 @@ with aba_ajuste:
                 escolhida = st.selectbox(
                     "Inspecionar ajuste",
                     [r.name for r in resultados],
+                    key="ajuste_inspecionar",
                 )
                 r = next(x for x in resultados if x.name == escolhida)
                 gg1, gg2 = st.columns(2)
 
-                x = np.asarray(dados, dtype=float)
+                x = np.asarray(aj["dados"], dtype=float)
                 x = x[np.isfinite(x)]
                 fr = fitting.FITTABLE[r.dist_key](*r.params)
                 grade = np.linspace(x.min(), x.max(), 400)
@@ -1047,7 +1152,7 @@ with aba_ajuste:
                 figd.update_layout(
                     height=360, margin=dict(l=0, r=0, t=30, b=0), title="Densidade"
                 )
-                gg1.plotly_chart(figd, width="stretch")
+                gg1.plotly_chart(figd, width="stretch", key="ajuste_densidade")
 
                 teo, amo = fitting.qq_points(x, r)
                 lim = [min(teo.min(), amo.min()), max(teo.max(), amo.max())]
@@ -1077,7 +1182,7 @@ with aba_ajuste:
                     xaxis_title="quantis teoricos",
                     yaxis_title="quantis amostrais",
                 )
-                gg2.plotly_chart(figq, width="stretch")
+                gg2.plotly_chart(figq, width="stretch", key="ajuste_qq")
                 st.caption(
                     "No Q-Q plot, olhe especialmente as PONTAS. Desvios no centro "
                     "quase nao afetam a decisao; desvios na cauda mudam "
@@ -1121,6 +1226,10 @@ with aba_metodo:
   `rho_P = 2·sin(π·rho_S/6)` para que o **Spearman final** bata com o alvo.
   Medido no repositorio: erro medio absoluto de **0,0010 com** a correcao
   contra **0,0144 sem** ela.
+- **Espelhamento da matriz de correlacao.** A grade e preenchida em um
+  triangulo so. Tirar a media com o lado vazio dividiria por dois toda
+  correlacao digitada, silenciosamente; o app espelha o lado preenchido e
+  avisa quando os dois lados conflitam.
 - **p-valor por bootstrap parametrico** no ajuste. Com parametros estimados
   dos mesmos dados, o p-valor assintotico do K-S e invalido. Medido no
   repositorio, sob H0 verdadeira: o teste ingenuo devolve p-valor medio
