@@ -407,8 +407,24 @@ async function iniciar() {
 
 // ---------------------------------------------------------------- variaveis
 
+// O campo de um parametro com valor padrao ja aparece preenchido na tela.
+// Se o modelo so registrasse o valor quando um evento `input` disparasse,
+// quem preenchesse min/moda/max e nao encostasse no lambda da PERT veria
+// "parametro ausente: lam" olhando para um campo com 4 dentro. O que a tela
+// mostra tem que ser o que o app usa.
+function paramsPadrao(distKey) {
+  const spec = CATALOGO.find(s => s.key === distKey);
+  const p = {};
+  if (spec) {
+    spec.params.forEach(x => {
+      if (x.default !== null && x.default !== undefined) p[x.name] = x.default;
+    });
+  }
+  return p;
+}
+
 function addVar() {
-  vars_.push({ id: proxId++, label: "", dist: "pert", params: {},
+  vars_.push({ id: proxId++, label: "", dist: "pert", params: paramsPadrao("pert"),
                values: "", probs: "", data: "" });
   renderVars();
 }
@@ -472,7 +488,7 @@ function renderVars() {
     } else if (spec) {
       campos = `<div class="grade">` + spec.params.map(p => {
         const val = v.params[p.name] !== undefined && v.params[p.name] !== null
-          ? v.params[p.name] : (p.default !== null && p.default !== undefined ? p.default : "");
+          ? v.params[p.name] : "";
         return `<div><label title="${esc(p.help || "")}">${esc(p.label)}</label>
           <input type="number" step="any" data-id="${v.id}" data-param="${p.name}"
                  value="${val}" placeholder="obrigatório"></div>`;
@@ -548,7 +564,7 @@ document.addEventListener("input", (e) => {
 
   if (ds.campo === "dist") {
     v.dist = e.target.value;
-    v.params = {};
+    v.params = paramsPadrao(v.dist);
     renderVars();                          // mudanca estrutural: campos trocam
     return;
   }
