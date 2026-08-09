@@ -1,14 +1,35 @@
 # mcrisk — Dashboard de Simulação de Monte Carlo para Análise de Risco
 
-Dashboard em Python/Streamlit para análise quantitativa de risco por simulação
-de Monte Carlo. Substitui valores fixos por distribuições de probabilidade e
-propaga a incerteza até o resultado — o mesmo princípio do add-in @RISK, aqui
+Dashboard em Python para análise quantitativa de risco por simulação de Monte
+Carlo. Substitui valores fixos por distribuições de probabilidade e propaga a
+incerteza até o resultado — o mesmo princípio do add-in @RISK, aqui
 implementado de forma aberta, auditável e testada.
+
+### ▶ [Abrir no navegador, sem instalar nada](https://jmagomez.github.io/mcrisk-dashboard/)
+
+A versão web roda o **mesmo pacote Python** deste repositório dentro do
+navegador, via Pyodide/WebAssembly — os números não podem divergir da versão
+testada. Nenhum dado sai da sua máquina. A primeira carga baixa cerca de 30 MB
+(Python + NumPy + SciPy) e leva de 20 segundos a alguns minutos; depois fica em
+cache.
 
 > **Sem afiliação.** Este projeto não é afiliado, patrocinado nem validado pela
 > Lumivero (proprietária do @RISK). @RISK é marca de seus respectivos titulares.
 > Trata-se de uma reimplementação independente de técnicas publicadas na
 > literatura estatística, todas referenciadas.
+
+---
+
+## Duas interfaces
+
+| | Versão web | Versão Streamlit |
+|---|---|---|
+| Acesso | [link direto](https://jmagomez.github.io/mcrisk-dashboard/), sem instalar | `streamlit run app.py` |
+| Motor | idêntico (`mcrisk/`, via Pyodide) | idêntico (`mcrisk/`) |
+| Variáveis, correlação, fórmula, resultados, tornado | sim | sim |
+| Ajuste de distribuições a dados | não | sim |
+| Replicações independentes | não | sim |
+| Exportação Excel | não (CSV e JSON) | sim |
 
 ---
 
@@ -30,7 +51,7 @@ que você digitou ou de um arquivo que você carregou.
 
 ---
 
-## Instalação
+## Instalação da versão completa
 
 ```bash
 git clone https://github.com/jmagomez/mcrisk-dashboard.git
@@ -39,23 +60,9 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-Requer Python 3.10+. Abra `http://localhost:8501`.
-
----
-
-## Uso em 4 passos
-
-1. **Aba 1 — Variáveis.** Adicione cada entrada incerta, escolha a distribuição
-   e informe os parâmetros. Cada variável ganha um nome usável na fórmula.
-2. **Aba 2 — Correlação.** Se as entradas não forem independentes, informe a
-   matriz de correlação de Spearman. O app valida a consistência interna.
-3. **Aba 3 — Modelo.** Escreva a fórmula de saída, por exemplo
-   `(preco - custo_unitario) * volume - custo_fixo`. Rode a simulação.
-4. **Aba 4 — Resultados.** Distribuição, percentis, medidas de cauda,
-   tornado de sensibilidade e exportação.
-
-A **aba 5** ajusta distribuições a dados históricos; a **aba 6** traz
-metodologia e referências completas.
+Requer Python 3.10+ e **Streamlit 1.51+** (o app usa `width="stretch"` em
+`st.plotly_chart`, que só existe a partir dessa versão). Abre em
+`http://localhost:8501`.
 
 ---
 
@@ -91,9 +98,8 @@ print(sensitivity.analyze(res.inputs, res.output, res.labels).as_records())
 
 ## Três decisões metodológicas, com o efeito medido
 
-Este repositório evita afirmações não verificadas. As três escolhas abaixo
-foram medidas por testes automatizados, e os números são reprodutíveis com
-`pytest`.
+Este repositório evita afirmações não verificadas. As escolhas abaixo foram
+medidas por testes automatizados, e os números são reprodutíveis com `pytest`.
 
 ### 1. Correção arcsin no Iman-Conover
 
@@ -106,8 +112,6 @@ mas o alvo declarado é o **Spearman**. Para escores normais vale
 | Com correção (padrão) | **0,0010** |
 | Sem correção | 0,0144 |
 
-Teste: `tests/test_correlation.py::test_correcao_arcsin_melhora_a_recuperacao_do_alvo`
-
 ### 2. p-valor por bootstrap paramétrico no ajuste
 
 Quando os parâmetros são estimados dos mesmos dados, a distribuição nula
@@ -116,13 +120,8 @@ produzir p-valores ~U(0,1) e rejeitar em ~5% dos casos ao nível de 5%:
 
 | | p-valor médio | Taxa de rejeição a 5% |
 |---|---|---|
-| K-S ingênuo (parâmetros estimados tratados como conhecidos) | 0,77 | **0,0%** |
+| K-S ingênuo | 0,77 | **0,0%** |
 | Bootstrap paramétrico (implementado) | 0,50 | **8,8%** |
-
-O teste ingênuo praticamente nunca rejeita — aceita ajustes ruins. Por isso o
-app **não reporta** o p-valor assintótico do K-S.
-
-Teste: `tests/test_fitting.py::test_pvalor_bootstrap_e_aproximadamente_uniforme_sob_h0`
 
 ### 3. Erro de simulação sob LHS
 
@@ -136,36 +135,52 @@ clássico `s/√n` deixa de ser válido (Stein, 1987). O app avisa disso e ofere
 
 ---
 
+## Defeitos encontrados em auditoria, e corrigidos
+
+Os testes de interface e uma revisão linha a linha encontraram quatro defeitos
+reais. Todos têm teste de regressão que **falha na versão anterior** do código.
+
+1. **Correlação dividida pela metade, em silêncio.** A tela pedia "preencha
+   apenas um triângulo", e o código fazia `(C + C.T)/2` — o que transforma o
+   0,8 digitado em 0,4. A simulação rodava, exibia "matriz válida e
+   internamente consistente", e usava metade da correlação pedida. Corrigido
+   com `mirror_triangle`, que espelha o lado preenchido e **avisa** quando os
+   dois lados conflitam.
+2. **Duas variáveis idênticas derrubavam a página.** Prévias com a mesma
+   distribuição e os mesmos parâmetros geravam gráficos idênticos, e o
+   Streamlit derivava o mesmo ID automático para os dois elementos.
+3. **O resultado do ajuste sumia da tela.** O bloco dependia do retorno de
+   `st.button`, então qualquer rerun o apagava — inclusive o do próprio
+   seletor "Inspecionar ajuste", que ficava inutilizável.
+4. **`achieved_spearman` devolvia matriz 1×1 com exatamente duas variáveis**,
+   porque `scipy.stats.spearmanr` retorna escalar nesse caso. Passou
+   despercebido porque todos os testes anteriores usavam três variáveis.
+
+O primeiro é o mais instrutivo: não quebrava nada. Só produzia números
+plausíveis e errados — exatamente o modo de falha que o `LIMITATIONS.md`
+argumenta ser o mais perigoso em análise de risco.
+
+---
+
 ## Testes
 
 ```bash
-pytest -q            # 210 testes
+pytest -q            # 236 testes
 ```
 
-Duas camadas, com propósitos diferentes:
+**168 de motor** — momentos teóricos vs. amostrais das 21 distribuições,
+monotonicidade das ppf, preservação exata das marginais sob Iman-Conover,
+recuperação da correlação alvo, ganho de variância do LHS, ausência de viés,
+cobertura empírica dos intervalos de confiança, recuperação de parâmetros no
+ajuste, calibração dos testes de aderência e 15 vetores de ataque contra o
+avaliador de fórmulas.
 
-**168 testes de motor** (`tests/test_distributions.py`, `test_sampling.py`,
-`test_correlation.py`, `test_formula.py`, `test_engine_and_stats.py`,
-`test_fitting.py`). Cobrem momentos teóricos vs. amostrais das 21
-distribuições, monotonicidade das ppf, preservação exata das marginais sob
-Iman-Conover, recuperação da correlação alvo, ganho de variância do LHS,
-ausência de viés, cobertura empírica dos intervalos de confiança, recuperação
-de parâmetros no ajuste, calibração dos testes de aderência e 15 vetores de
-ataque contra o avaliador de fórmulas.
+**42 de interface** (`tests/test_ui.py`) — dirigem o app de ponta a ponta com
+`streamlit.testing.v1.AppTest` e conferem os números exibidos na tela contra a
+solução analítica.
 
-**42 testes de interface** (`tests/test_ui.py`). Dirigem o app de ponta a ponta
-com `streamlit.testing.v1.AppTest`: clicam nos botões, preenchem os campos,
-rodam a simulação e conferem os números que aparecem na tela contra a solução
-analítica. Também verificam que as ressalvas metodológicas chegam ao usuário —
-não basta estarem documentadas aqui.
-
-> **Por que essa segunda camada existe.** Um teste que apenas carregava o app
-> vazio passava sem problemas. Ao dirigir a interface de verdade, os testes
-> encontraram um travamento: duas variáveis com a mesma distribuição e os
-> mesmos parâmetros geravam prévias idênticas, o Streamlit derivava o mesmo ID
-> automático para os dois elementos e a página inteira caía. É um cenário
-> banal — dois custos iguais, duas atividades iguais. Corrigido, com teste de
-> regressão que falha na versão anterior.
+**26 de auditoria** (`tests/test_auditoria.py`) — os quatro defeitos acima,
+cada um verificado contra a versão defeituosa antes da correção.
 
 ---
 
@@ -175,14 +190,15 @@ não basta estarem documentadas aqui.
 mcrisk/
   distributions.py   registro de distribuições, ppf, momentos teóricos
   sampling.py        Monte Carlo e Latin Hypercube
-  correlation.py     Iman-Conover, reparo PSD, conversões Pearson↔Spearman
+  correlation.py     Iman-Conover, espelhamento, reparo PSD
   formula.py         avaliador seguro de fórmulas (AST + lista branca)
   engine.py          orquestração da simulação
   summary.py         estatísticas de saída e erro de simulação
   sensitivity.py     índices de sensibilidade e tornado
   fitting.py         MLE, AIC/BIC, K-S e A-D com bootstrap
-app.py               interface Streamlit
-tests/               210 testes (168 de motor + 42 de interface)
+app.py               interface Streamlit (completa)
+index.html           interface de navegador (Pyodide), publicada no GitHub Pages
+tests/               236 testes
 ```
 
 ---
