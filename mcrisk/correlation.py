@@ -37,10 +37,69 @@ Referencias:
 
 from __future__ import annotations
 
-from typing import Tuple
+from typing import List, Tuple
 
 import numpy as np
 from scipy import stats
+
+
+# ---------------------------------------------------------------------------
+# Leitura de uma matriz preenchida pela metade
+# ---------------------------------------------------------------------------
+
+
+def mirror_triangle(
+    C: np.ndarray, tol: float = 1e-9
+) -> Tuple[np.ndarray, List[Tuple[int, int, float, float]]]:
+    """Torna simetrica uma matriz preenchida em apenas um dos triangulos.
+
+    POR QUE ISSO NAO E `(C + C.T) / 2`
+    ----------------------------------
+    Se a interface pede "preencha apenas um triangulo" e o usuario digita
+    0,8 acima da diagonal deixando 0 abaixo, a media dos dois lados devolve
+    0,4. A simulacao roda, nao reclama de nada, e usa metade da correlacao
+    pedida. E o pior tipo de defeito: nao quebra, so mente.
+
+    Regra aplicada a cada par (i, j):
+      - so um lado preenchido  -> espelha o lado preenchido;
+      - os dois iguais         -> usa o valor;
+      - os dois preenchidos e diferentes -> AMBIGUO: usa o triangulo
+        superior e registra o conflito para o chamador avisar;
+      - nenhum preenchido      -> 0.
+
+    Um zero explicito e indistinguivel de "nao preenchi" numa grade
+    numerica. A escolha aqui e assumir que zero significa "nao preenchi",
+    que e o caso comum; quem quiser fixar zero de verdade pode preencher os
+    dois lados com zero, e nenhum conflito sera reportado.
+
+    Retorna
+    -------
+    (matriz simetrica com diagonal 1, lista de conflitos (i, j, acima, abaixo))
+    """
+    C = np.asarray(C, dtype=float)
+    if C.ndim != 2 or C.shape[0] != C.shape[1]:
+        raise ValueError("a matriz precisa ser quadrada")
+    n = C.shape[0]
+    out = np.eye(n, dtype=float)
+    conflitos: List[Tuple[int, int, float, float]] = []
+    for i in range(n):
+        for j in range(i + 1, n):
+            acima, abaixo = float(C[i, j]), float(C[j, i])
+            vazio_acima = not np.isfinite(acima) or abs(acima) <= tol
+            vazio_abaixo = not np.isfinite(abaixo) or abs(abaixo) <= tol
+            if vazio_acima and vazio_abaixo:
+                valor = 0.0
+            elif vazio_abaixo:
+                valor = acima
+            elif vazio_acima:
+                valor = abaixo
+            elif abs(acima - abaixo) <= tol:
+                valor = acima
+            else:
+                valor = acima
+                conflitos.append((i, j, acima, abaixo))
+            out[i, j] = out[j, i] = valor
+    return out, conflitos
 
 
 # ---------------------------------------------------------------------------
