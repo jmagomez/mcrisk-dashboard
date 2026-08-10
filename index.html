@@ -801,6 +801,10 @@ function duplicados() {
 function renderVars() {
   const cont = $("vars");
   cont.innerHTML = "";
+  // O DOM acabou de ser recriado, entao as assinaturas guardadas apontam para
+  // elementos que nao existem mais. Sem limpar, desenharPrevia conclui que ja
+  // desenhou aquela previa e devolve cedo, deixando o espaco em branco.
+  for (const k in previaAssin) delete previaAssin[k];
   vars_.forEach((v) => {
     const spec = CATALOGO.find(s => s.key === v.dist);
     const div = document.createElement("div");
@@ -994,10 +998,14 @@ $("arqjson").addEventListener("change", async (e) => {
     corrAssinatura = null;
     const C = spec.correlacao || spec.correlation;
     if (Array.isArray(C)) {
+      // A tela pede um triangulo so; preencher os dois com o mesmo numero
+      // funciona, mas polui a grade. Le qualquer um dos lados e grava em cima.
       for (let i = 0; i < C.length; i++)
-        for (let j = 0; j < C.length; j++)
-          if (i !== j && Math.abs(C[i][j]) > 1e-12) corrM[i + "_" + j] = C[i][j];
-      $("usarcorr") && ($("usarcorr").checked = true);
+        for (let j = i + 1; j < C.length; j++) {
+          const val = Math.abs(C[i][j]) > 1e-12 ? C[i][j] : C[j][i];
+          if (Math.abs(val) > 1e-12) corrM[i + "_" + j] = val;
+        }
+      usarCorrLigado = true;
     }
     renderVars();
     $("importmsg").innerHTML = `<div class="ok">Modelo carregado: ${vars_.length}
@@ -1013,6 +1021,7 @@ $("arqjson").addEventListener("change", async (e) => {
 
 let corrM = {};
 let corrAssinatura = null;
+let usarCorrLigado = false;
 
 function renderCorr() {
   const vv = validasVars();
@@ -1067,8 +1076,6 @@ function renderCorr() {
   $("usarcorr").addEventListener("change", (e) => { usarCorrLigado = e.target.checked; });
   checarConflitos();
 }
-
-let usarCorrLigado = false;
 
 document.addEventListener("input", (e) => {
   const ds = e.target.dataset || {};
@@ -1340,7 +1347,6 @@ $("arqcsv").addEventListener("change", async (e) => {
   if (!f) return;
   const texto = await f.text();
   const linhas = texto.split(/\r?\n/).filter(l => l.trim());
-  // usa a primeira coluna que seja numerica na maioria das linhas
   const sep = texto.includes(";") && !texto.includes(",") ? ";" : ",";
   const matriz = linhas.map(l => l.split(sep));
   const ncols = Math.max(...matriz.map(r => r.length));
