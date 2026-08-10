@@ -1,0 +1,13 @@
+{
+  "name": "mcrisk-e2e",
+  "private": true,
+  "description": "Testes de navegador do dashboard web (index.html) com Playwright.",
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "relatorio": "playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.48.0"
+  }
+}
