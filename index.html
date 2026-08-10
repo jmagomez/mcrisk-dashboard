@@ -21,6 +21,7 @@
   section{border:1px solid var(--borda);border-radius:10px;padding:18px;margin-bottom:18px}
   section > h2{margin:0 0 4px;font-size:16px}
   section > .sub{margin:0 0 14px;color:var(--cinza);font-size:13.5px}
+  h3{font-size:14px;margin:22px 0 8px}
   label{display:block;font-size:13px;font-weight:600;margin-bottom:4px}
   input,select,textarea{width:100%;padding:8px 10px;border:1px solid var(--borda);
     border-radius:6px;font-size:14px;font-family:inherit;background:#fff}
@@ -31,6 +32,11 @@
   button.sec{background:#fff;color:var(--texto);border:1px solid var(--borda)}
   button.mini{padding:4px 9px;font-size:13px;background:#fff;color:var(--vermelho);
     border:1px solid var(--borda)}
+  .abas{display:flex;gap:4px;flex-wrap:wrap;border-bottom:1px solid var(--borda);
+    margin:0 auto;max-width:1180px;padding:0 24px}
+  .abas button{background:none;color:var(--cinza);border:0;border-bottom:2px solid transparent;
+    border-radius:0;padding:11px 14px;font-weight:600;font-size:14px}
+  .abas button.ativa{color:var(--azul);border-bottom-color:var(--azul)}
   .linha{display:flex;gap:12px;flex-wrap:wrap}
   .linha > div{flex:1;min-width:130px}
   .grade{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
@@ -46,6 +52,7 @@
   th,td{text-align:right;padding:6px 8px;border-bottom:1px solid var(--borda)}
   th:first-child,td:first-child{text-align:left}
   th{font-size:12px;color:var(--cinza);font-weight:600}
+  .rolavel{overflow-x:auto}
   .aviso{border-left:3px solid #d4a72c;background:#fff8c5;padding:10px 14px;
     border-radius:0 6px 6px 0;margin:10px 0;font-size:13.5px}
   .erro{border-left:3px solid var(--vermelho);background:#fee2e2;padding:10px 14px;
@@ -58,6 +65,11 @@
   code{background:#f3f4f6;padding:1px 5px;border-radius:4px;font-size:13px}
   .graficos{display:grid;grid-template-columns:1fr 1fr;gap:14px}
   @media(max-width:820px){.graficos{grid-template-columns:1fr}}
+  details{border:1px solid var(--borda);border-radius:8px;padding:10px 14px;margin:12px 0}
+  summary{cursor:pointer;font-weight:600;font-size:14px}
+  .caixinhas{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:6px;margin-top:6px}
+  .caixinhas label{display:flex;align-items:center;gap:6px;font-weight:400;font-size:13.5px;margin:0}
+  .caixinhas input{width:auto}
   #carregando{padding:40px 24px;text-align:center;color:var(--cinza)}
   .barra{height:4px;background:var(--borda);border-radius:2px;overflow:hidden;
     max-width:320px;margin:14px auto 0}
@@ -86,136 +98,355 @@
   </p>
 </div>
 
+<nav class="abas oculto" id="abas">
+  <button data-aba="vars" class="ativa">1 · Variáveis</button>
+  <button data-aba="corr">2 · Correlação</button>
+  <button data-aba="modelo">3 · Modelo</button>
+  <button data-aba="result">4 · Resultados</button>
+  <button data-aba="ajuste">5 · Ajuste a dados</button>
+  <button data-aba="metodo">6 · Metodologia</button>
+</nav>
+
 <main id="app" class="oculto">
 
-  <div class="nota">
-    <strong>O que é isto.</strong> Versão de navegador do
-    <a href="https://github.com/jmagomez/mcrisk-dashboard" target="_blank">mcrisk</a>,
-    executando o <em>mesmo</em> pacote Python testado no repositório, via WebAssembly —
-    os números aqui não podem divergir da versão Streamlit. Esta página cobre
-    variáveis, correlação, fórmula e resultados. O ajuste de distribuições a dados
-    e as replicações independentes existem só na versão completa.
-    Leia <a href="https://github.com/jmagomez/mcrisk-dashboard/blob/main/LIMITATIONS.md" target="_blank">LIMITATIONS.md</a>
-    antes de usar em decisão real.
-  </div>
-
-  <section>
-    <h2>Configuração</h2>
-    <p class="sub">O erro de amostragem cai com 1/√n. Mais iterações não corrigem premissas erradas.</p>
-    <div class="linha">
-      <div>
-        <label for="iteracoes">Iterações</label>
-        <input type="number" id="iteracoes" value="10000" min="100" max="500000" step="1000">
-      </div>
-      <div>
-        <label for="metodo">Método de amostragem</label>
-        <select id="metodo">
-          <option value="lhs">Latin Hypercube (recomendado)</option>
-          <option value="mc">Monte Carlo simples</option>
-          <option value="lhs_median">Latin Hypercube (mediana do estrato)</option>
-        </select>
-      </div>
-      <div>
-        <label for="seed">Semente aleatória</label>
-        <input type="number" id="seed" value="12345" min="0">
-      </div>
-    </div>
-  </section>
-
-  <section>
-    <h2>1 · Variáveis de entrada</h2>
-    <p class="sub">Nenhum valor vem preenchido. Os números precisam vir da sua evidência.</p>
-    <div id="vars"></div>
-    <button id="addvar">➕ Adicionar variável</button>
-    <div id="varmsg"></div>
-  </section>
-
-  <section id="seccorr" class="oculto">
-    <h2>2 · Correlação entre as entradas</h2>
-    <p class="sub">Correlação de posto (Spearman), imposta por Iman-Conover preservando as marginais.</p>
-    <label style="display:flex;align-items:center;gap:8px;font-weight:400">
-      <input type="checkbox" id="usarcorr" style="width:auto"> Aplicar correlação na simulação
-    </label>
-    <div id="corrgrade" style="margin-top:12px;overflow-x:auto"></div>
-    <p class="dica">Preencha apenas um dos triângulos — o lado preenchido é espelhado no outro.
-      Se você preencher os dois com valores diferentes, o app avisa em vez de escolher sozinho.</p>
-    <div id="corrmsg"></div>
-  </section>
-
-  <section>
-    <h2>3 · Fórmula da saída</h2>
-    <p class="sub">Expressão que combina as entradas no resultado de interesse.</p>
-    <div id="nomesdisp" class="dica" style="margin-bottom:8px"></div>
-    <input type="text" id="formula" placeholder="ex.: (preco - custo_unitario) * volume - custo_fixo">
-    <div id="formsg"></div>
-    <p class="dica">Funções: <code>se(cond,a,b)</code>, <code>min</code>, <code>max</code>,
-      <code>clip</code>, <code>abs</code>, <code>exp</code>, <code>log</code>, <code>sqrt</code>,
-      <code>round</code>, <code>floor</code>, <code>ceil</code>,
-      <code>desconto(taxa,periodo)</code>. A expressão é analisada com <code>ast</code>
-      e restrita a uma lista branca — não há <code>eval</code> cru.</p>
-    <div style="margin-top:14px">
-      <button id="rodar" disabled>▶ Rodar simulação</button>
-      <span id="status" class="dica" style="margin-left:10px"></span>
-    </div>
-  </section>
-
-  <section id="secres" class="oculto">
-    <h2>4 · Resultados</h2>
-    <div id="resavisos"></div>
-    <div class="metricas" id="metricas"></div>
-    <div class="graficos">
-      <div id="hist"></div>
-      <div id="cdf"></div>
-    </div>
-
-    <div class="linha" style="margin-top:18px;align-items:flex-start">
-      <div style="flex:2;min-width:300px">
-        <h3 style="font-size:14px;margin:0 0 8px">Percentis com IC de 95%</h3>
-        <table id="tabperc"></table>
-        <p class="dica">IC não paramétrico via estatísticas de ordem (método binomial).
-          Assume iterações independentes — o que não vale sob LHS.</p>
-      </div>
-      <div style="flex:1;min-width:230px">
-        <h3 style="font-size:14px;margin:0 0 8px">Medidas de cauda</h3>
+  <!-- ================================================== ABA 1 -->
+  <div class="painel" id="painel-vars">
+    <section>
+      <h2>Configuração da simulação</h2>
+      <p class="sub">O erro de amostragem cai com 1/√n. Mais iterações não corrigem premissas erradas.</p>
+      <div class="linha">
         <div>
-          <label for="alfa">Nível alfa</label>
-          <input type="number" id="alfa" value="0.05" min="0.01" max="0.25" step="0.01">
+          <label for="iteracoes">Iterações</label>
+          <input type="number" id="iteracoes" value="10000" min="100" max="500000" step="1000">
         </div>
-        <div style="margin-top:8px">
-          <label for="lado">A perda está na cauda</label>
-          <select id="lado">
-            <option value="esq">esquerda (saída = ganho)</option>
-            <option value="dir">direita (saída = perda)</option>
+        <div>
+          <label for="metodo">Método de amostragem</label>
+          <select id="metodo">
+            <option value="lhs">Latin Hypercube (recomendado)</option>
+            <option value="mc">Monte Carlo simples</option>
+            <option value="lhs_median">Latin Hypercube (mediana do estrato)</option>
           </select>
         </div>
-        <div class="metricas" style="grid-template-columns:1fr;margin-top:10px">
-          <div class="metrica"><div class="rot" id="rotvar">VaR</div><div class="val" id="valvar">—</div></div>
-          <div class="metrica"><div class="rot" id="rotcvar">CVaR</div><div class="val" id="valcvar">—</div></div>
+        <div>
+          <label for="seed">Semente aleatória</label>
+          <input type="number" id="seed" value="12345" min="0">
         </div>
-        <p class="dica">VaR não é medida coerente de risco — não é subaditivo
-          (Artzner et al., 1999). Leia junto com o CVaR.</p>
       </div>
-    </div>
+      <div style="margin-top:12px">
+        <label style="display:flex;align-items:center;gap:8px;font-weight:400">
+          <input type="checkbox" id="usarreplicas" style="width:auto">
+          Rodar replicações independentes
+        </label>
+        <div class="linha" style="margin-top:8px">
+          <div style="max-width:180px">
+            <label for="nreplicas">Número de replicações</label>
+            <input type="number" id="nreplicas" value="10" min="2" max="50" disabled>
+          </div>
+        </div>
+        <p class="dica">Sob LHS as iterações NÃO são independentes, e o erro padrão
+          <code>s/√n</code> deixa de ser válido (Stein, 1987). Replicações independentes são a
+          forma correta de medir o erro — e custam tempo proporcional ao número de réplicas,
+          o que no navegador é sensível.</p>
+      </div>
+      <div id="avisoiter"></div>
+    </section>
 
-    <div id="seccorrobt" class="oculto" style="margin-top:18px">
-      <h3 style="font-size:14px;margin:0 0 8px">Correlação pedida vs. obtida</h3>
-      <table id="tabcorr"></table>
-      <p class="dica">Iman-Conover atinge o alvo de forma aproximada. Diferenças grandes
-        indicam que a matriz precisou ser reparada por não ser positiva semidefinida.</p>
-    </div>
+    <section>
+      <h2>Variáveis de entrada</h2>
+      <p class="sub">Nenhum valor vem preenchido. Os números precisam vir da sua evidência
+        (dados históricos, cotações, elicitação com especialistas).</p>
+      <div id="vars"></div>
+      <button id="addvar">➕ Adicionar variável</button>
+      <button class="sec" id="importar">⬆ Importar modelo (JSON)</button>
+      <input type="file" id="arqjson" accept="application/json,.json" class="oculto">
+      <div id="varmsg"></div>
+      <div id="importmsg"></div>
+    </section>
+  </div>
 
-    <div style="margin-top:18px">
-      <h3 style="font-size:14px;margin:0 0 8px">Sensibilidade</h3>
-      <div id="tornado"></div>
-      <table id="tabsens"></table>
-      <p class="dica" id="r2nota"></p>
-    </div>
+  <!-- ================================================== ABA 2 -->
+  <div class="painel oculto" id="painel-corr">
+    <section id="seccorr">
+      <h2>Correlação entre as entradas</h2>
+      <p class="sub">Correlação de posto (Spearman), imposta por Iman-Conover preservando as marginais exatamente.</p>
+      <div id="corrconteudo"></div>
+    </section>
+  </div>
 
-    <div style="margin-top:18px">
-      <button class="sec" id="baixarcsv">⬇ Baixar iterações (CSV)</button>
-      <button class="sec" id="baixarjson">⬇ Baixar especificação (JSON)</button>
-    </div>
-  </section>
+  <!-- ================================================== ABA 3 -->
+  <div class="painel oculto" id="painel-modelo">
+    <section>
+      <h2>Fórmula da saída</h2>
+      <p class="sub">Expressão que combina as entradas no resultado de interesse
+        (lucro, VPL, custo total, duração do projeto).</p>
+      <div id="nomesdisp" class="dica" style="margin-bottom:8px"></div>
+      <input type="text" id="formula" placeholder="ex.: (preco - custo_unitario) * volume - custo_fixo">
+      <div id="formsg"></div>
+      <details>
+        <summary>Funções disponíveis</summary>
+        <table style="margin-top:8px">
+          <tr><td><code>se(cond, a, b)</code></td><td style="text-align:left">condicional vetorizado, equivalente ao SE do Excel</td></tr>
+          <tr><td><code>min(a,b)</code> / <code>max(a,b)</code></td><td style="text-align:left">mínimo/máximo elemento a elemento</td></tr>
+          <tr><td><code>clip(x, lo, hi)</code></td><td style="text-align:left">limita x ao intervalo [lo, hi]</td></tr>
+          <tr><td><code>abs, exp, log, log10, sqrt, sign</code></td><td style="text-align:left">funções elementares</td></tr>
+          <tr><td><code>round, floor, ceil</code></td><td style="text-align:left">arredondamentos</td></tr>
+          <tr><td><code>desconto(taxa, periodo)</code></td><td style="text-align:left">fator 1/(1+taxa)^periodo, para montar VPL explicitamente</td></tr>
+        </table>
+        <p class="dica">A expressão é analisada com <code>ast</code> e restrita a uma lista branca.
+          Não há <code>eval</code> cru: strings arbitrárias não conseguem executar código.</p>
+      </details>
+      <div style="margin-top:6px">
+        <label for="nomesaida">Nome do resultado</label>
+        <input type="text" id="nomesaida" value="Resultado" style="max-width:260px">
+      </div>
+      <div style="margin-top:14px">
+        <button id="rodar" disabled>▶ Rodar simulação</button>
+        <span id="status" class="dica" style="margin-left:10px"></span>
+      </div>
+    </section>
+  </div>
+
+  <!-- ================================================== ABA 4 -->
+  <div class="painel oculto" id="painel-result">
+    <section id="secres">
+      <h2>Resultados</h2>
+      <div id="semres" class="nota">Nenhuma simulação executada ainda. Configure e rode na aba 3.</div>
+      <div id="conteudores" class="oculto">
+        <div id="resavisos"></div>
+        <div class="metricas" id="metricas"></div>
+
+        <h3>Quanto disso é ruído de simulação?</h3>
+        <div class="metricas" id="metricaserro"></div>
+        <div id="avisoerro"></div>
+
+        <h3>Distribuição do resultado</h3>
+        <div class="graficos">
+          <div id="hist"></div>
+          <div id="cdf"></div>
+        </div>
+
+        <div class="linha" style="margin-top:18px;align-items:flex-start">
+          <div style="flex:2;min-width:300px">
+            <h3 style="margin-top:0">Percentis com IC de 95%</h3>
+            <div class="rolavel"><table id="tabperc"></table></div>
+            <p class="dica">IC não paramétrico via estatísticas de ordem (método binomial).
+              Assume iterações independentes — o que não vale sob LHS.</p>
+          </div>
+          <div style="flex:1;min-width:230px">
+            <h3 style="margin-top:0">Medidas de cauda</h3>
+            <div>
+              <label for="limiar">Limiar</label>
+              <input type="number" id="limiar" step="any">
+            </div>
+            <div class="metricas" style="grid-template-columns:1fr;margin-top:8px">
+              <div class="metrica"><div class="rot" id="rotpb">P(X ≤ limiar)</div><div class="val" id="valpb">—</div></div>
+            </div>
+            <div>
+              <label for="alfa">Nível alfa</label>
+              <input type="number" id="alfa" value="0.05" min="0.01" max="0.25" step="0.01">
+            </div>
+            <div style="margin-top:8px">
+              <label for="lado">A perda está na cauda</label>
+              <select id="lado">
+                <option value="esq">esquerda (saída = ganho)</option>
+                <option value="dir">direita (saída = perda)</option>
+              </select>
+            </div>
+            <div class="metricas" style="grid-template-columns:1fr;margin-top:10px">
+              <div class="metrica"><div class="rot" id="rotvar">VaR</div><div class="val" id="valvar">—</div></div>
+              <div class="metrica"><div class="rot" id="rotcvar">CVaR</div><div class="val" id="valcvar">—</div></div>
+            </div>
+            <p class="dica">VaR não é medida coerente de risco — não é subaditivo
+              (Artzner et al., 1999). Leia junto com o CVaR.</p>
+          </div>
+        </div>
+
+        <div id="seccorrobt" class="oculto">
+          <h3>Correlação pedida vs. obtida</h3>
+          <div class="rolavel"><table id="tabcorr"></table></div>
+          <p class="dica">Iman-Conover atinge o alvo de forma aproximada. Diferenças grandes
+            indicam que a matriz precisou ser reparada por não ser positiva semidefinida.</p>
+        </div>
+
+        <details>
+          <summary>Diagnóstico de convergência</summary>
+          <div id="conv"></div>
+          <p class="dica">Estabilização visual é condição necessária, não suficiente: uma curva
+            plana não garante que a cauda foi bem amostrada. Sob LHS a ordem das iterações é
+            arbitrária, então leia apenas como diagnóstico qualitativo.</p>
+        </details>
+
+        <h3>Análise de sensibilidade</h3>
+        <div id="sensavisos"></div>
+        <div style="max-width:520px;margin-bottom:8px">
+          <label for="criterio">Ordenar por</label>
+          <select id="criterio">
+            <option value="srrc">Coef. de regressão de posto padronizado (controla as demais)</option>
+            <option value="spearman">Correlação de posto (marginal)</option>
+          </select>
+        </div>
+        <div id="tornado"></div>
+        <div class="rolavel"><table id="tabsens"></table></div>
+        <p class="dica" id="r2nota"></p>
+
+        <details>
+          <summary>Dispersão entrada × saída</summary>
+          <div style="max-width:320px;margin:8px 0">
+            <label for="varscatter">Variável</label>
+            <select id="varscatter"></select>
+          </div>
+          <div id="scatter"></div>
+          <p class="dica">Inspecione a forma: se a nuvem não for monótona, os índices do
+            tornado são pouco confiáveis para esta variável.</p>
+        </details>
+
+        <h3>Exportar</h3>
+        <button class="sec" id="baixarcsv">⬇ Iterações (CSV)</button>
+        <button class="sec" id="baixarjson">⬇ Especificação (JSON)</button>
+        <p class="dica">O JSON documenta a especificação completa, incluindo a semente, e pode
+          ser reimportado na aba 1 — é o que torna o resultado auditável e reproduzível por terceiros.</p>
+      </div>
+    </section>
+  </div>
+
+  <!-- ================================================== ABA 5 -->
+  <div class="painel oculto" id="painel-ajuste">
+    <section>
+      <h2>Ajustar distribuições a dados históricos</h2>
+      <p class="sub">Compare candidatas por máxima verossimilhança. Use o resultado para
+        escolher a distribuição de uma variável na aba 1.</p>
+
+      <label for="fitdados">Valores (vírgulas ou quebras de linha)</label>
+      <textarea id="fitdados" rows="5" placeholder="ex.: 12.4, 15.1, 9.8, 14.2, …"></textarea>
+      <div style="margin-top:8px">
+        <button class="sec" id="fitarquivo">⬆ Carregar CSV</button>
+        <input type="file" id="arqcsv" accept=".csv,text/csv" class="oculto">
+        <span id="fitarqmsg" class="dica"></span>
+      </div>
+
+      <div id="fitdesc"></div>
+
+      <details open>
+        <summary>Candidatas</summary>
+        <div class="caixinhas" id="fitcandidatas"></div>
+      </details>
+
+      <div style="max-width:340px">
+        <label for="fitboot">Réplicas de bootstrap para o p-valor</label>
+        <select id="fitboot">
+          <option value="0">0 — desliga o teste</option>
+          <option value="100">100</option>
+          <option value="200" selected>200</option>
+          <option value="500">500</option>
+        </select>
+      </div>
+      <p class="dica">O bootstrap paramétrico é a única forma correta de obter p-valor quando os
+        parâmetros são estimados dos mesmos dados. Custa tempo proporcional ao número de réplicas —
+        no navegador, 500 réplicas com muitas candidatas pode levar minutos.</p>
+
+      <div style="margin-top:12px">
+        <button id="ajustar" disabled>Ajustar</button>
+        <span id="fitstatus" class="dica" style="margin-left:10px"></span>
+      </div>
+
+      <div id="fitres" class="oculto">
+        <div class="rolavel"><table id="tabfit"></table></div>
+        <div class="nota">
+          <strong>Como ler esta tabela.</strong> AIC/BIC apenas ORDENAM as candidatas: a primeira
+          colocada pode ainda ser um ajuste ruim. O peso de Akaike é evidência RELATIVA dentro do
+          conjunto testado. O p-valor por bootstrap é o único número aqui que responde
+          "este modelo é compatível com os dados?" — valores baixos (&lt; 0,05) indicam
+          incompatibilidade. Sempre confira o Q-Q plot.
+        </div>
+        <div id="fitavisos"></div>
+        <div style="max-width:320px;margin-top:12px">
+          <label for="fitinspecionar">Inspecionar ajuste</label>
+          <select id="fitinspecionar"></select>
+        </div>
+        <div class="graficos" style="margin-top:12px">
+          <div id="fitdens"></div>
+          <div id="fitqq"></div>
+        </div>
+        <p class="dica">No Q-Q plot, olhe especialmente as PONTAS. Desvios no centro quase não
+          afetam a decisão; desvios na cauda mudam completamente o VaR e a probabilidade de
+          cenários extremos.</p>
+        <div id="fitparams"></div>
+      </div>
+    </section>
+  </div>
+
+  <!-- ================================================== ABA 6 -->
+  <div class="painel oculto" id="painel-metodo">
+    <section>
+      <h2>Metodologia</h2>
+      <h3 style="margin-top:8px">O que o app faz, nesta ordem</h3>
+      <ol>
+        <li><strong>Amostragem</strong> — gera uma matriz <code>n × k</code> no cubo unitário,
+          por Monte Carlo simples ou Latin Hypercube.</li>
+        <li><strong>Transformada inversa</strong> — aplica a função quantil de cada marginal.</li>
+        <li><strong>Correlação</strong> — se especificada, aplica Iman-Conover, que reordena as
+          colunas para atingir a correlação de posto alvo preservando as marginais.</li>
+        <li><strong>Avaliação</strong> — calcula a fórmula de saída de forma vetorizada.</li>
+        <li><strong>Diagnóstico</strong> — estatísticas, erro de simulação, sensibilidade.</li>
+      </ol>
+
+      <h3>Decisões metodológicas que valem explicitar</h3>
+      <ul>
+        <li><strong>Correção arcsin no Iman-Conover.</strong> O algoritmo original controla a
+          correlação de Pearson dos escores normais; miramos <code>rho_P = 2·sin(π·rho_S/6)</code>
+          para que o Spearman final bata com o alvo. Medido no repositório: erro médio absoluto de
+          <strong>0,0010 com</strong> a correção contra <strong>0,0144 sem</strong> ela.</li>
+        <li><strong>Espelhamento da matriz de correlação.</strong> A grade é preenchida em um
+          triângulo só. Tirar a média com o lado vazio dividiria por dois toda correlação digitada,
+          silenciosamente; o app espelha o lado preenchido e avisa quando os dois lados conflitam.</li>
+        <li><strong>p-valor por bootstrap paramétrico</strong> no ajuste. Sob H₀ verdadeira, o teste
+          K-S ingênuo devolve p-valor médio <strong>0,77</strong> e rejeita em <strong>0%</strong>
+          dos casos ao nível de 5%; o bootstrap devolve média <strong>0,50</strong> e rejeita em
+          <strong>8,8%</strong> — próximo do nominal.</li>
+        <li><strong>Erro de simulação sob LHS.</strong> <code>s/√n</code> não é válido quando as
+          iterações são dependentes. Por isso há replicações independentes como opção.</li>
+        <li><strong>Sem <code>eval</code> cru.</strong> A fórmula é analisada com <code>ast</code>
+          e restrita a uma lista branca de construções.</li>
+      </ul>
+
+      <h3>O que este app NÃO faz</h3>
+      <p>Não tem índices de Sobol, cópulas além da estrutura de postos (portanto não modela
+        dependência de cauda), otimização sob incerteza, séries temporais ou processos
+        estocásticos, ajuste bayesiano, nem integração com Excel.
+        Leia <a href="https://github.com/jmagomez/mcrisk-dashboard/blob/main/LIMITATIONS.md" target="_blank">LIMITATIONS.md</a>
+        — a maior fonte de erro em análise de risco não está no código, está nas premissas.</p>
+
+      <h3>Referências</h3>
+      <p class="dica" style="font-size:13.5px;line-height:1.7">
+        McKay, Beckman &amp; Conover (1979), Technometrics 21(2):239-245 ·
+        Stein (1987), Technometrics 29(2):143-151 ·
+        Helton &amp; Davis (2003), Reliab. Eng. Syst. Saf. 81(1):23-69 ·
+        Iman &amp; Conover (1982), Comm. Statist. 11(3):311-334 ·
+        Higham (2002), IMA J. Numer. Anal. 22(3):329-343 ·
+        Kruskal (1958), JASA 53:814-861 ·
+        Akaike (1974), IEEE TAC 19(6):716-723 ·
+        Schwarz (1978), Ann. Statist. 6(2):461-464 ·
+        Burnham &amp; Anderson (2002), <em>Model Selection and Multimodel Inference</em>, Springer ·
+        Lilliefors (1967), JASA 62(318):399-402 ·
+        Stephens (1974), JASA 69(347):730-737 ·
+        Babu &amp; Rao (2004), Sankhyā 66(1):63-74 ·
+        Davison &amp; Hinkley (1997), <em>Bootstrap Methods and their Application</em>, CUP ·
+        Helton &amp; Davis (2002), Risk Analysis 22(3):591-622 ·
+        Saltelli &amp; Sobol' (1995), Reliab. Eng. Syst. Saf. 50(3):225-239 ·
+        Saltelli et al. (2008), <em>Global Sensitivity Analysis: The Primer</em>, Wiley ·
+        Artzner et al. (1999), Math. Finance 9(3):203-228 ·
+        Glasserman (2004), <em>Monte Carlo Methods in Financial Engineering</em>, Springer ·
+        Vose (2008), <em>Risk Analysis: A Quantitative Guide</em>, 3ª ed., Wiley ·
+        Embrechts, Klüppelberg &amp; Mikosch (1997), <em>Modelling Extremal Events</em>, Springer ·
+        Coles (2001), <em>Statistical Modeling of Extreme Values</em>, Springer ·
+        Savage (2009), <em>The Flaw of Averages</em>, Wiley ·
+        Taleb (2007), <em>The Black Swan</em>, Random House ·
+        Saltelli et al. (2020), Nature 582:482-484.
+      </p>
+      <p class="dica">Detalhamento completo em
+        <a href="https://github.com/jmagomez/mcrisk-dashboard/blob/main/METHODOLOGY.md" target="_blank">METHODOLOGY.md</a>.</p>
+    </section>
+  </div>
 
 </main>
 
@@ -223,8 +454,7 @@
   <a href="https://github.com/jmagomez/mcrisk-dashboard" target="_blank">Código-fonte</a> ·
   <a href="https://github.com/jmagomez/mcrisk-dashboard/blob/main/METHODOLOGY.md" target="_blank">Metodologia</a> ·
   <a href="https://github.com/jmagomez/mcrisk-dashboard/blob/main/LIMITATIONS.md" target="_blank">Limitações</a> ·
-  MIT.
-  Sem afiliação com a Lumivero, proprietária do @RISK.
+  MIT. Sem afiliação com a Lumivero, proprietária do @RISK.
 </footer>
 
 <script>
@@ -236,9 +466,12 @@ import json
 import numpy as np
 from mcrisk import distributions as dists
 from mcrisk import correlation as corr_mod
-from mcrisk import sensitivity, summary
-from mcrisk.engine import SimulationSpec, Variable, run
+from mcrisk import fitting, sensitivity, summary
+from mcrisk.engine import SimulationSpec, Variable, run, run_replicates
 from mcrisk.formula import validate_formula
+
+ULTIMO = None
+ULTIMO_AJUSTE = None
 
 def _limpa(o):
     if isinstance(o, dict):
@@ -251,6 +484,12 @@ def _limpa(o):
         f = float(o)
         return f if np.isfinite(f) else None
     return o
+
+def _variavel(v):
+    return Variable(
+        name=v["name"], label=v["label"], dist_key=v["dist"],
+        params={k: float(x) for k, x in (v.get("params") or {}).items() if x is not None},
+        values=v.get("values"), probs=v.get("probs"), data=v.get("data"))
 
 def catalogo():
     out = []
@@ -266,28 +505,33 @@ def catalogo():
                     "params": [], "notes": "", "reference": ""})
     return json.dumps(_limpa(out))
 
+def catalogo_ajuste():
+    return json.dumps(list(fitting.FITTABLE.keys()))
+
 def validar(expr, nomes_json):
     ok, msg = validate_formula(expr, json.loads(nomes_json))
     return json.dumps({"ok": bool(ok), "msg": msg})
 
 def checar_variavel(v_json):
-    v = json.loads(v_json)
-    var = Variable(name=v["name"], label=v["label"], dist_key=v["dist"],
-                   params={k: float(x) for k, x in (v.get("params") or {}).items()
-                           if x is not None},
-                   values=v.get("values"), probs=v.get("probs"), data=v.get("data"))
-    return json.dumps(var.validate())
+    return json.dumps(_variavel(json.loads(v_json)).validate())
+
+def previa(v_json):
+    var = _variavel(json.loads(v_json))
+    u = (np.arange(1, 2001) - 0.5) / 2000.0
+    x = np.asarray(var.ppf(u), dtype=float)
+    x = x[np.isfinite(x)]
+    if x.size == 0:
+        return json.dumps({"amostra": [], "stats": {}})
+    return json.dumps(_limpa({
+        "amostra": x.tolist(),
+        "stats": {"media": float(np.mean(x)), "desvio": float(np.std(x, ddof=1)),
+                  "P5": float(np.percentile(x, 5)), "P50": float(np.percentile(x, 50)),
+                  "P95": float(np.percentile(x, 95))},
+    }))
 
 def simular(payload_json):
     p = json.loads(payload_json)
-    variaveis = []
-    for v in p["variaveis"]:
-        variaveis.append(Variable(
-            name=v["name"], label=v["label"], dist_key=v["dist"],
-            params={k: float(x) for k, x in (v.get("params") or {}).items()
-                    if x is not None},
-            values=v.get("values"), probs=v.get("probs"), data=v.get("data"),
-        ))
+    variaveis = [_variavel(v) for v in p["variaveis"]]
 
     C = None
     conflitos = []
@@ -297,7 +541,16 @@ def simular(payload_json):
     spec = SimulationSpec(variables=variaveis, formula=p["formula"],
                           iterations=int(p["iteracoes"]), method=p["metodo"],
                           seed=int(p["seed"]), correlation=C)
-    res = run(spec)
+
+    reps = int(p.get("replicas") or 0)
+    resumo_rep = None
+    if reps >= 2:
+        res, outs = run_replicates(spec, replicates=reps)
+        medias = [float(np.mean(o[np.isfinite(o)])) for o in outs]
+        resumo_rep = summary.replicate_summary(medias)
+    else:
+        res = run(spec)
+
     y = res.output
     yf = y[np.isfinite(y)]
     d = summary.describe(y)
@@ -305,25 +558,45 @@ def simular(payload_json):
 
     alfa = float(p.get("alfa", 0.05))
     baixo = bool(p.get("perda_esquerda", True))
+    limiar = p.get("limiar")
+    if limiar is None:
+        limiar = float(np.percentile(yf, 25))
+    limiar = float(limiar)
 
     perc = []
     for q in summary.DEFAULT_PERCENTILES:
         lo, hi = summary.quantile_ci(yf, q / 100.0)
         perc.append({"p": "P" + str(q), "valor": d["P" + str(q)], "lo": lo, "hi": hi})
 
+    lo_m, hi_m = summary.mean_ci(y)
+    n_prec = summary.iterations_for_precision(y, abs(d["media"]) * 0.01) if d["media"] else None
+
+    idx, med = summary.convergence_path(yf)
     passo = max(1, int(yf.size // 20000))
+    passo_disp = max(1, int(yf.size // 3000))
+
     saida = {
         "n": int(res.n),
         "rotulos": list(res.labels),
+        "metodo": res.spec.method,
         "stats": d,
         "percentis": perc,
+        "limiar": limiar,
+        "prob_abaixo": summary.prob_below(yf, limiar),
         "var": summary.value_at_risk(yf, alfa, baixo),
         "cvar": summary.conditional_value_at_risk(yf, alfa, baixo),
         "erro_padrao": summary.mc_standard_error(y),
+        "ic_media": [lo_m, hi_m],
+        "n_para_1pct": n_prec,
+        "replicas": resumo_rep,
         "amostra": yf[::passo].tolist(),
+        "conv_x": idx.tolist(), "conv_y": med.tolist(),
+        "disp_x": res.inputs[::passo_disp].T.tolist(),
+        "disp_y": res.output[::passo_disp].tolist(),
         "sens": sres.as_records(),
         "rank_r2": sres.rank_r2,
-        "avisos": list(res.notes) + list(sres.warnings),
+        "avisos": list(res.notes),
+        "avisos_sens": list(sres.warnings),
         "conflitos": [[int(i), int(j), float(a), float(b)] for i, j, a, b in conflitos],
     }
     if C is not None and len(res.names) > 1:
@@ -349,14 +622,54 @@ def csv_iteracoes(nome_saida):
         linha = [repr(float(X[i, j])) for j in range(X.shape[1])] + [repr(float(y[i]))]
         buf.write(",".join(linha) + "\\n")
     return buf.getvalue()
+
+def descrever_dados(dados_json):
+    return json.dumps(_limpa(fitting.describe_data(json.loads(dados_json))))
+
+def ajustar(payload_json):
+    p = json.loads(payload_json)
+    dados = p["dados"]
+    resultados = fitting.fit_many(dados, p["candidatas"],
+                                  bootstrap=int(p["bootstrap"]),
+                                  rng=np.random.default_rng(int(p["seed"])))
+    if not resultados:
+        return json.dumps({"linhas": [], "erro": "nenhum ajuste convergiu"})
+    pesos = fitting.akaike_weights(resultados)
+    linhas = []
+    for r, w in zip(resultados, pesos):
+        rec = dict(r.as_record())
+        rec["peso_akaike"] = float(w)
+        linhas.append(rec)
+    global ULTIMO_AJUSTE
+    ULTIMO_AJUSTE = {"dados": dados, "resultados": resultados}
+    return json.dumps(_limpa({"linhas": linhas, "n": len(dados)}))
+
+def detalhe_ajuste(nome):
+    r = next(x for x in ULTIMO_AJUSTE["resultados"] if x.name == nome)
+    x = np.asarray(ULTIMO_AJUSTE["dados"], dtype=float)
+    x = x[np.isfinite(x)]
+    fr = fitting.FITTABLE[r.dist_key](*r.params)
+    grade = np.linspace(float(x.min()), float(x.max()), 300)
+    teo, amo = fitting.qq_points(x, r)
+    return json.dumps(_limpa({
+        "dados": x.tolist(),
+        "grade": grade.tolist(),
+        "densidade": np.asarray(fr.pdf(grade), dtype=float).tolist(),
+        "qq_teorico": teo.tolist(),
+        "qq_amostral": amo.tolist(),
+        "params": [float(v) for v in r.params],
+        "nome": r.name,
+    }))
 `;
 
 let py = null;
 let CATALOGO = [];
+let CAND_AJUSTE = [];
 let vars_ = [];
 let proxId = 1;
 let ultimoResultado = null;
 let ultimoPayload = null;
+let dadosAjuste = [];
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"']/g, c =>
@@ -379,9 +692,26 @@ function sanitizar(rotulo, i) {
 
 function parseLista(txt) {
   if (!txt) return [];
-  return String(txt).split(/[,;\n\t]+/).map(s => parseFloat(s.trim()))
+  return String(txt).split(/[,;\n\t]+/).map(s => parseFloat(String(s).trim()))
     .filter(v => !isNaN(v));
 }
+
+const LAYOUT = { margin: { l: 52, r: 10, t: 36, b: 40 }, height: 330,
+                 font: { family: "inherit", size: 12 }, showlegend: false };
+const OPCOES = { displayModeBar: false, responsive: true };
+
+// ---------------------------------------------------------------- abas
+
+$("abas").addEventListener("click", (e) => {
+  const aba = e.target.dataset ? e.target.dataset.aba : null;
+  if (!aba) return;
+  document.querySelectorAll(".abas button").forEach(b =>
+    b.classList.toggle("ativa", b.dataset.aba === aba));
+  document.querySelectorAll(".painel").forEach(p =>
+    p.classList.toggle("oculto", p.id !== "painel-" + aba));
+  // Plotly precisa recalcular tamanho quando o container sai de display:none
+  window.dispatchEvent(new Event("resize"));
+});
 
 // ---------------------------------------------------------------- inicializacao
 
@@ -400,8 +730,11 @@ async function iniciar() {
   py.runPython("import sys; sys.path.insert(0, '/')");
   py.runPython(COLA);
   CATALOGO = JSON.parse(py.globals.get("catalogo")());
+  CAND_AJUSTE = JSON.parse(py.globals.get("catalogo_ajuste")());
+  montarCandidatas();
   $("carregando").classList.add("oculto");
   $("app").classList.remove("oculto");
+  $("abas").classList.remove("oculto");
   addVar();
 }
 
@@ -410,8 +743,7 @@ async function iniciar() {
 // O campo de um parametro com valor padrao ja aparece preenchido na tela.
 // Se o modelo so registrasse o valor quando um evento `input` disparasse,
 // quem preenchesse min/moda/max e nao encostasse no lambda da PERT veria
-// "parametro ausente: lam" olhando para um campo com 4 dentro. O que a tela
-// mostra tem que ser o que o app usa.
+// "parametro ausente: lam" olhando para um campo com 4 dentro.
 function paramsPadrao(distKey) {
   const spec = CATALOGO.find(s => s.key === distKey);
   const p = {};
@@ -423,9 +755,11 @@ function paramsPadrao(distKey) {
   return p;
 }
 
-function addVar() {
-  vars_.push({ id: proxId++, label: "", dist: "pert", params: paramsPadrao("pert"),
-               values: "", probs: "", data: "" });
+function addVar(dados) {
+  vars_.push(Object.assign({
+    id: proxId++, label: "", dist: "pert", params: paramsPadrao("pert"),
+    values: "", probs: "", data: ""
+  }, dados || {}));
   renderVars();
 }
 
@@ -438,17 +772,20 @@ function validasVars() {
   return vars_.filter(v => v.label && errosVar(v).length === 0);
 }
 
-function errosVar(v) {
-  if (!v.label) return [];
-  const payload = {
-    name: sanitizar(v.label), label: v.label, dist: v.dist,
-    params: v.dist === "discrete_custom" || v.dist === "empirical" ? {} : v.params,
+function payloadVar(v, i) {
+  return {
+    name: sanitizar(v.label, i || 1), label: v.label, dist: v.dist,
+    params: (v.dist === "discrete_custom" || v.dist === "empirical") ? {} : v.params,
     values: v.dist === "discrete_custom" ? parseLista(v.values) : null,
     probs: v.dist === "discrete_custom" ? parseLista(v.probs) : null,
     data: v.dist === "empirical" ? parseLista(v.data) : null,
   };
+}
+
+function errosVar(v) {
+  if (!v.label) return [];
   try {
-    return JSON.parse(py.globals.get("checar_variavel")(JSON.stringify(payload)));
+    return JSON.parse(py.globals.get("checar_variavel")(JSON.stringify(payloadVar(v))));
   } catch (e) {
     return [String(e)];
   }
@@ -459,15 +796,12 @@ function duplicados() {
   return [...new Set(rot.filter(r => rot.filter(x => x === r).length > 1))];
 }
 
-// RECONSTRUCAO COMPLETA.
-// So pode ser chamada em mudancas estruturais: adicionar variavel, remover
-// variavel, trocar a distribuicao (que troca os campos de parametro).
-// Chamar isto a cada tecla destroi o proprio campo que esta sendo digitado,
-// o foco se perde e o usuario nao consegue escrever mais de um caractere.
+// RECONSTRUCAO COMPLETA. So em mudancas estruturais: adicionar, remover,
+// trocar distribuicao. Chamar a cada tecla destroi o campo sendo digitado.
 function renderVars() {
   const cont = $("vars");
   cont.innerHTML = "";
-  vars_.forEach((v, idx) => {
+  vars_.forEach((v) => {
     const spec = CATALOGO.find(s => s.key === v.dist);
     const div = document.createElement("div");
     div.className = "var";
@@ -510,14 +844,14 @@ function renderVars() {
       </div>
       <p class="dica" id="nome-${v.id}" style="margin-top:-6px"></p>
       ${campos}
-      <div id="msg-${v.id}"></div>`;
+      <div id="msg-${v.id}"></div>
+      <div id="prev-${v.id}"></div>`;
     cont.appendChild(div);
   });
   atualizarDerivados();
 }
 
-// ATUALIZACAO LEVE, sem tocar nos campos de entrada.
-// Roda a cada tecla. So mexe em elementos que o usuario nao esta digitando.
+// ATUALIZACAO LEVE, sem tocar nos campos de entrada. Roda a cada tecla.
 function atualizarDerivados() {
   vars_.forEach((v, idx) => {
     const cap = $("nome-" + v.id);
@@ -539,6 +873,7 @@ function atualizarDerivados() {
         }
       }
       msg.innerHTML = html;
+      desenharPrevia(v, errs.length === 0 && !!v.label);
     }
   });
 
@@ -553,19 +888,46 @@ function atualizarDerivados() {
 
   renderCorr();
   renderFormula();
+  avisoIteracoes();
+}
+
+// Previa da marginal. Redesenhada so quando a especificacao da variavel muda,
+// para nao refazer um Plotly a cada tecla.
+const previaAssin = {};
+function desenharPrevia(v, valida) {
+  const alvo = $("prev-" + v.id);
+  if (!alvo) return;
+  if (!valida) { alvo.innerHTML = ""; previaAssin[v.id] = null; return; }
+  const assin = JSON.stringify(payloadVar(v));
+  if (previaAssin[v.id] === assin) return;
+  previaAssin[v.id] = assin;
+  let r;
+  try { r = JSON.parse(py.globals.get("previa")(JSON.stringify(payloadVar(v)))); }
+  catch (e) { alvo.innerHTML = ""; return; }
+  if (!r.amostra.length) { alvo.innerHTML = ""; return; }
+  alvo.innerHTML = `<div class="linha" style="margin-top:8px">
+      <div style="flex:3;min-width:260px"><div id="prevg-${v.id}"></div></div>
+      <div style="flex:2;min-width:180px"><table id="prevt-${v.id}"></table>
+        <p class="dica">Prévia determinística (quantis igualmente espaçados), n=2.000.</p></div>
+    </div>`;
+  Plotly.newPlot("prevg-" + v.id, [{ x: r.amostra, type: "histogram", nbinsx: 45,
+    marker: { color: "#2563eb" }, opacity: 0.85 }],
+    Object.assign({}, LAYOUT, { height: 190, margin: { l: 44, r: 8, t: 6, b: 30 }, bargap: 0.02 }),
+    OPCOES);
+  $("prevt-" + v.id).innerHTML = Object.entries(r.stats)
+    .map(([k, val]) => `<tr><td>${k}</td><td>${fmt(val)}</td></tr>`).join("");
 }
 
 document.addEventListener("input", (e) => {
   const ds = e.target.dataset || {};
-  if (ds.corr !== undefined) return;      // tratado no listener da correlacao
+  if (ds.corr !== undefined) return;
   if (!ds.id) return;
   const v = vars_.find(x => x.id === Number(ds.id));
   if (!v) return;
-
   if (ds.campo === "dist") {
     v.dist = e.target.value;
     v.params = paramsPadrao(v.dist);
-    renderVars();                          // mudanca estrutural: campos trocam
+    renderVars();
     return;
   }
   if (ds.param) {
@@ -574,11 +936,77 @@ document.addEventListener("input", (e) => {
   } else if (ds.campo) {
     v[ds.campo] = e.target.value;
   }
-  atualizarDerivados();                    // sem reconstruir os campos
+  atualizarDerivados();
 });
 
 document.addEventListener("click", (e) => {
   if (e.target.dataset && e.target.dataset.remove) removeVar(Number(e.target.dataset.remove));
+});
+
+$("addvar").addEventListener("click", () => addVar());
+
+function avisoIteracoes() {
+  const n = Number($("iteracoes").value);
+  const reps = $("usarreplicas").checked ? Number($("nreplicas").value) : 1;
+  const total = n * reps;
+  $("avisoiter").innerHTML = total > 400000
+    ? `<div class="aviso">São ${total.toLocaleString("pt-BR")} avaliações no total
+       (${n.toLocaleString("pt-BR")} × ${reps}). No navegador isso pode levar bastante
+       tempo e a aba fica travada durante o cálculo, porque Pyodide roda na mesma thread
+       da interface.</div>` : "";
+}
+["iteracoes", "nreplicas"].forEach(id => $(id).addEventListener("input", avisoIteracoes));
+$("usarreplicas").addEventListener("change", () => {
+  $("nreplicas").disabled = !$("usarreplicas").checked;
+  avisoIteracoes();
+});
+
+// ---------------------------------------------------------------- importar JSON
+
+$("importar").addEventListener("click", () => $("arqjson").click());
+$("arqjson").addEventListener("change", async (e) => {
+  const f = e.target.files[0];
+  if (!f) return;
+  try {
+    const spec = JSON.parse(await f.text());
+    const lista = spec.variaveis || spec.variables || [];
+    if (!Array.isArray(lista) || !lista.length) throw new Error("nenhuma variável no arquivo");
+    vars_ = [];
+    proxId = 1;
+    lista.forEach(v => {
+      const dist = v.distribuicao || v.dist || "pert";
+      const base = paramsPadrao(dist);
+      const p = Object.assign(base, v.parametros || v.params || {});
+      vars_.push({
+        id: proxId++, label: v.rotulo || v.label || v.nome || v.name || "",
+        dist: dist, params: p,
+        values: (v.valores || v.values || []).join ? (v.valores || v.values || []).join(", ") : "",
+        probs: (v.probabilidades || v.probs || []).join ? (v.probabilidades || v.probs || []).join(", ") : "",
+        data: (v.dados || v.data || []).join ? (v.dados || v.data || []).join(", ") : "",
+      });
+    });
+    if (spec.formula) $("formula").value = spec.formula;
+    if (spec.iteracoes) $("iteracoes").value = spec.iteracoes;
+    if (spec.metodo) $("metodo").value = spec.metodo;
+    if (spec.semente !== undefined) $("seed").value = spec.semente;
+    else if (spec.seed !== undefined) $("seed").value = spec.seed;
+    corrM = {};
+    corrAssinatura = null;
+    const C = spec.correlacao || spec.correlation;
+    if (Array.isArray(C)) {
+      for (let i = 0; i < C.length; i++)
+        for (let j = 0; j < C.length; j++)
+          if (i !== j && Math.abs(C[i][j]) > 1e-12) corrM[i + "_" + j] = C[i][j];
+      $("usarcorr") && ($("usarcorr").checked = true);
+    }
+    renderVars();
+    $("importmsg").innerHTML = `<div class="ok">Modelo carregado: ${vars_.length}
+      variável(is)${spec.formula ? ", fórmula e" : " e"} configuração. Confira antes de rodar —
+      o arquivo não carrega os resultados, só a especificação.</div>`;
+  } catch (err) {
+    $("importmsg").innerHTML = `<div class="erro">Não consegui ler o arquivo: ${esc(err.message || err)}</div>`;
+  }
+  e.target.value = "";
 });
 
 // ---------------------------------------------------------------- correlacao
@@ -588,21 +1016,37 @@ let corrAssinatura = null;
 
 function renderCorr() {
   const vv = validasVars();
-  const sec = $("seccorr");
-  if (vv.length < 2 || duplicados().length) {
-    sec.classList.add("oculto");
+  const cont = $("corrconteudo");
+  const dups = duplicados();
+  if (dups.length) {
+    cont.innerHTML = `<div class="erro">Há rótulos repetidos (${dups.map(esc).join(", ")}).
+      Renomeie as variáveis na aba 1 para poder especificar correlações.</div>`;
     corrAssinatura = null;
     return;
   }
-  sec.classList.remove("oculto");
+  if (vv.length < 2) {
+    cont.innerHTML = `<div class="nota">Defina ao menos duas variáveis válidas para
+      especificar correlações.</div>`;
+    corrAssinatura = null;
+    return;
+  }
   const nomes = vv.map(v => v.label);
   const assin = JSON.stringify(nomes);
-  if (assin === corrAssinatura) return;    // nada mudou: nao reconstroi a grade
+  if (assin === corrAssinatura) return;
   const ativo = document.activeElement;
   if (ativo && ativo.dataset && ativo.dataset.corr !== undefined) return;
   corrAssinatura = assin;
 
-  let html = "<table><tr><th></th>" + nomes.map(n => `<th>${esc(n)}</th>`).join("") + "</tr>";
+  let html = `<div class="aviso">Tratar entradas correlacionadas como independentes é um dos
+    erros mais caros em análise de risco: subestima a variância da saída quando a correlação é
+    positiva e superestima quando é negativa. Correlação também não é causalidade — impor uma
+    correlação não modela o mecanismo que a produz.</div>
+    <label style="display:flex;align-items:center;gap:8px;font-weight:400;margin:12px 0">
+      <input type="checkbox" id="usarcorr" style="width:auto"${usarCorrLigado ? " checked" : ""}>
+      Aplicar correlação na simulação
+    </label>
+    <div class="rolavel"><table><tr><th></th>` +
+    nomes.map(n => `<th>${esc(n)}</th>`).join("") + "</tr>";
   for (let i = 0; i < nomes.length; i++) {
     html += `<tr><th>${esc(nomes[i])}</th>`;
     for (let j = 0; j < nomes.length; j++) {
@@ -614,8 +1058,17 @@ function renderCorr() {
     }
     html += "</tr>";
   }
-  $("corrgrade").innerHTML = html + "</table>";
+  html += `</table></div>
+    <p class="dica">Preencha apenas um dos triângulos — o lado preenchido é espelhado no outro.
+      A diagonal é forçada em 1. Se você preencher os dois com valores diferentes, o app avisa
+      em vez de escolher sozinho.</p>
+    <div id="corrmsg"></div>`;
+  cont.innerHTML = html;
+  $("usarcorr").addEventListener("change", (e) => { usarCorrLigado = e.target.checked; });
+  checarConflitos();
 }
+
+let usarCorrLigado = false;
 
 document.addEventListener("input", (e) => {
   const ds = e.target.dataset || {};
@@ -623,7 +1076,7 @@ document.addEventListener("input", (e) => {
   const raw = e.target.value;
   if (raw === "") delete corrM[ds.corr];
   else corrM[ds.corr] = parseFloat(raw);
-  checarConflitos();                       // nao reconstroi a grade
+  checarConflitos();
 });
 
 function matrizCorr() {
@@ -638,6 +1091,8 @@ function matrizCorr() {
 }
 
 function checarConflitos() {
+  const alvo = $("corrmsg");
+  if (!alvo) return;
   const M = matrizCorr();
   const nomes = validasVars().map(v => v.label);
   const conf = [];
@@ -646,7 +1101,7 @@ function checarConflitos() {
       if (Math.abs(M[i][j]) > 1e-9 && Math.abs(M[j][i]) > 1e-9 &&
           Math.abs(M[i][j] - M[j][i]) > 1e-9)
         conf.push(`${nomes[i]} × ${nomes[j]}: ${M[i][j]} acima, ${M[j][i]} abaixo`);
-  $("corrmsg").innerHTML = conf.length
+  alvo.innerHTML = conf.length
     ? `<div class="aviso">Valores conflitantes nos dois triângulos (será usado o de cima):
        ${conf.map(esc).join("; ")}</div>` : "";
 }
@@ -664,7 +1119,7 @@ function renderFormula() {
   if (dups) {
     $("formsg").innerHTML = `<div class="erro">Resolva os rótulos repetidos antes de rodar.</div>`;
   } else if (!nomes.length) {
-    $("formsg").innerHTML = `<div class="nota">Defina ao menos uma variável válida.</div>`;
+    $("formsg").innerHTML = `<div class="nota">Defina ao menos uma variável válida na aba 1.</div>`;
   } else if (!expr) {
     $("formsg").innerHTML = "";
   } else {
@@ -676,31 +1131,27 @@ function renderFormula() {
 }
 
 $("formula").addEventListener("input", renderFormula);
-$("addvar").addEventListener("click", addVar);
 
 // ---------------------------------------------------------------- rodar
 
-$("rodar").addEventListener("click", async () => {
+async function rodar() {
   const vv = validasVars();
   $("status").textContent = "Simulando…";
   $("rodar").disabled = true;
   await new Promise(r => setTimeout(r, 30));
   try {
+    const usarCorr = $("usarcorr") && $("usarcorr").checked;
     const payload = {
-      variaveis: vv.map((v, i) => ({
-        name: sanitizar(v.label, i + 1), label: v.label, dist: v.dist,
-        params: (v.dist === "discrete_custom" || v.dist === "empirical") ? {} : v.params,
-        values: v.dist === "discrete_custom" ? parseLista(v.values) : null,
-        probs: v.dist === "discrete_custom" ? parseLista(v.probs) : null,
-        data: v.dist === "empirical" ? parseLista(v.data) : null,
-      })),
+      variaveis: vv.map((v, i) => payloadVar(v, i + 1)),
       formula: $("formula").value.trim(),
       iteracoes: Number($("iteracoes").value),
       metodo: $("metodo").value,
       seed: Number($("seed").value),
-      correlacao: $("usarcorr").checked ? matrizCorr() : null,
+      correlacao: usarCorr ? matrizCorr() : null,
+      replicas: $("usarreplicas").checked ? Number($("nreplicas").value) : 0,
       alfa: Number($("alfa").value),
       perda_esquerda: $("lado").value === "esq",
+      limiar: ultimoResultado && $("limiar").value !== "" ? Number($("limiar").value) : null,
     };
     ultimoPayload = payload;
     const res = JSON.parse(py.globals.get("simular")(JSON.stringify(payload)));
@@ -709,18 +1160,22 @@ $("rodar").addEventListener("click", async () => {
     $("status").textContent = `Concluído: ${res.n.toLocaleString("pt-BR")} iterações.`;
   } catch (e) {
     $("status").textContent = "";
+    $("semres").classList.add("oculto");
+    $("conteudores").classList.remove("oculto");
     $("resavisos").innerHTML = `<div class="erro">Falha na simulação: ${esc(e.message || e)}</div>`;
-    $("secres").classList.remove("oculto");
   }
   $("rodar").disabled = false;
-});
-
-["alfa", "lado"].forEach(id => $(id).addEventListener("change", () => {
-  if (ultimoResultado) $("rodar").click();
+}
+$("rodar").addEventListener("click", rodar);
+["alfa", "lado", "limiar"].forEach(id => $(id).addEventListener("change", () => {
+  if (ultimoResultado) rodar();
 }));
+$("criterio").addEventListener("change", () => { if (ultimoResultado) desenharTornado(ultimoResultado); });
+$("varscatter").addEventListener("change", () => { if (ultimoResultado) desenharScatter(ultimoResultado); });
 
 function mostrar(r) {
-  $("secres").classList.remove("oculto");
+  $("semres").classList.add("oculto");
+  $("conteudores").classList.remove("oculto");
   const s = r.stats;
 
   const avisos = [...r.avisos];
@@ -728,10 +1183,11 @@ function mostrar(r) {
     `Correlação conflitante entre as posições ${c[0] + 1} e ${c[1] + 1}: ` +
     `${c[2]} acima da diagonal, ${c[3]} abaixo. Foi usado o valor de cima.`));
   if (s.assimetria !== null && Math.abs(s.assimetria) > 0.5) {
-    avisos.push(`A saída é assimétrica (assimetria = ${fmt(s.assimetria, 3)}). ` +
-      `A média não representa bem o caso típico; olhe a mediana e os percentis.`);
+    avisos.push(`A saída é assimétrica (assimetria = ${fmt(s.assimetria, 3)}). A média ` +
+      `(${fmt(s.media)}) não representa bem o caso típico; a mediana (${fmt(s.P50)}) é mais ` +
+      `informativa, e as decisões deveriam olhar os percentis, não o valor esperado.`);
   }
-  $("resavisos").innerHTML = avisos.map(a => `<div class="aviso">${esc(a)}</div>`).join("");
+  $("resavisos").innerHTML = avisos.map(a => `<div class="nota">${esc(a)}</div>`).join("");
 
   const metricas = [
     ["Média", s.media], ["Desvio-padrão", s.desvio], ["P5", s.P5],
@@ -743,21 +1199,48 @@ function mostrar(r) {
     `<div class="metrica"><div class="rot">${rot}</div><div class="val">${fmt(val)}</div></div>`
   ).join("");
 
-  const layout = { margin: { l: 50, r: 10, t: 36, b: 40 }, height: 330,
-                   font: { family: "inherit", size: 12 }, showlegend: false };
-  Plotly.newPlot("hist", [{ x: r.amostra, type: "histogram", nbinsx: 60,
+  // --- erro de simulacao
+  if (r.replicas) {
+    const rp = r.replicas;
+    $("metricaserro").innerHTML = [
+      ["Replicações", rp.replicacoes], ["Média das réplicas", fmt(rp.media)],
+      ["Erro padrão (válido)", fmt(rp.erro_padrao)],
+      ["IC 95% da média", `[${fmt(rp.ic_inf)}, ${fmt(rp.ic_sup)}]`],
+    ].map(([rot, val]) =>
+      `<div class="metrica"><div class="rot">${rot}</div><div class="val">${val}</div></div>`).join("");
+    $("avisoerro").innerHTML = `<p class="dica">Erro estimado a partir de replicações
+      independentes — válido tanto para Monte Carlo simples quanto para LHS.</p>`;
+  } else {
+    $("metricaserro").innerHTML = [
+      ["Erro padrão s/√n", fmt(r.erro_padrao)],
+      ["IC 95% da média", `[${fmt(r.ic_media[0])}, ${fmt(r.ic_media[1])}]`],
+      ["n para ±1% da média", r.n_para_1pct === null ? "—" :
+        Math.round(r.n_para_1pct).toLocaleString("pt-BR")],
+    ].map(([rot, val]) =>
+      `<div class="metrica"><div class="rot">${rot}</div><div class="val">${val}</div></div>`).join("");
+    $("avisoerro").innerHTML = r.metodo !== "mc"
+      ? `<div class="aviso">Estes números assumem iterações independentes, o que NÃO vale sob
+         Latin Hypercube. Eles tendem a superestimar o erro real da média. Para uma medida
+         válida, ative as replicações independentes na aba 1.</div>` : "";
+  }
+
+  Plotly.newPlot("hist", [{ x: r.amostra, type: "histogram", nbinsx: 70,
     marker: { color: "#2563eb" }, opacity: 0.85 }],
-    { ...layout, title: "Histograma", bargap: 0.02 }, { displayModeBar: false, responsive: true });
+    Object.assign({}, LAYOUT, { title: "Histograma", bargap: 0.02 }), OPCOES);
 
   const xs = [...r.amostra].sort((a, b) => a - b);
   Plotly.newPlot("cdf", [{ x: xs, y: xs.map((_, i) => (i + 1) / xs.length),
     type: "scatter", mode: "lines", line: { color: "#2563eb", width: 2 } }],
-    { ...layout, title: "Distribuição acumulada (CDF)", yaxis: { title: "P(X ≤ x)" } },
-    { displayModeBar: false, responsive: true });
+    Object.assign({}, LAYOUT, { title: "Distribuição acumulada (CDF)",
+      yaxis: { title: "P(X ≤ x)" } }), OPCOES);
 
   $("tabperc").innerHTML = "<tr><th>percentil</th><th>valor</th><th>IC inf</th><th>IC sup</th></tr>" +
     r.percentis.map(p => `<tr><td>${p.p}</td><td>${fmt(p.valor)}</td>` +
       `<td>${fmt(p.lo)}</td><td>${fmt(p.hi)}</td></tr>`).join("");
+
+  if ($("limiar").value === "") $("limiar").value = r.limiar;
+  $("rotpb").textContent = `P(X ≤ ${fmt(r.limiar)})`;
+  $("valpb").textContent = `${(r.prob_abaixo * 100).toFixed(2)}%`;
 
   const nivel = Math.round((1 - Number($("alfa").value)) * 100);
   $("rotvar").textContent = `VaR ${nivel}%`;
@@ -774,13 +1257,27 @@ function mostrar(r) {
     $("seccorrobt").classList.add("oculto");
   }
 
-  const sens = [...r.sens].sort((a, b) => Math.abs(b.srrc) - Math.abs(a.srrc));
+  Plotly.newPlot("conv", [{ x: r.conv_x, y: r.conv_y, type: "scatter", mode: "lines",
+    line: { color: "#2563eb" } }],
+    Object.assign({}, LAYOUT, { height: 260, xaxis: { title: "iterações" },
+      yaxis: { title: "média acumulada" } }), OPCOES);
+
+  $("sensavisos").innerHTML = r.avisos_sens.map(a => `<div class="aviso">${esc(a)}</div>`).join("");
+  desenharTornado(r);
+  $("varscatter").innerHTML = r.rotulos.map((n, i) =>
+    `<option value="${i}">${esc(n)}</option>`).join("");
+  desenharScatter(r);
+}
+
+function desenharTornado(r) {
+  const chave = $("criterio").value;
+  const sens = [...r.sens].sort((a, b) => Math.abs(b[chave]) - Math.abs(a[chave]));
   Plotly.newPlot("tornado", [{
-    x: sens.map(v => v.srrc).reverse(), y: sens.map(v => v.variavel).reverse(),
+    x: sens.map(v => v[chave]).reverse(), y: sens.map(v => v.variavel).reverse(),
     type: "bar", orientation: "h",
-    marker: { color: sens.map(v => v.srrc < 0 ? "#dc2626" : "#2563eb").reverse() },
-  }], { ...layout, height: Math.max(220, 42 * sens.length + 60),
-        title: "Gráfico tornado (SRRC)" }, { displayModeBar: false, responsive: true });
+    marker: { color: sens.map(v => v[chave] < 0 ? "#dc2626" : "#2563eb").reverse() },
+  }], Object.assign({}, LAYOUT, { height: Math.max(220, 42 * sens.length + 70),
+        title: "Gráfico tornado", xaxis: { title: chave.toUpperCase() } }), OPCOES);
 
   $("tabsens").innerHTML =
     "<tr><th>variável</th><th>Spearman</th><th>p-valor</th><th>SRRC</th><th>contrib. %</th></tr>" +
@@ -790,8 +1287,170 @@ function mostrar(r) {
 
   $("r2nota").textContent =
     `R² da regressão de postos = ${fmt(r.rank_r2, 3)}. É a fração do comportamento do ` +
-    `modelo que índices monótonos conseguem explicar. Com R² baixo o tornado pode ordenar ` +
-    `mal as variáveis — considere índices de Sobol, que este app não implementa.`;
+    `modelo que índices monótonos conseguem explicar. A coluna de contribuição para a ` +
+    `variância (SRRC²) só faz sentido com R² alto e entradas pouco correlacionadas entre si.`;
+}
+
+function desenharScatter(r) {
+  const j = Number($("varscatter").value || 0);
+  Plotly.newPlot("scatter", [{ x: r.disp_x[j], y: r.disp_y, type: "scattergl",
+    mode: "markers", marker: { size: 4, opacity: 0.35, color: "#2563eb" } }],
+    Object.assign({}, LAYOUT, { height: 380, xaxis: { title: r.rotulos[j] },
+      yaxis: { title: $("nomesaida").value || "Resultado" } }), OPCOES);
+}
+
+// ---------------------------------------------------------------- ajuste a dados
+
+function montarCandidatas() {
+  const padrao = ["normal", "lognormal", "gamma", "weibull", "logistic", "gumbel_r"];
+  $("fitcandidatas").innerHTML = CAND_AJUSTE.map(k =>
+    `<label><input type="checkbox" value="${k}"${padrao.includes(k) ? " checked" : ""}> ${k}</label>`
+  ).join("");
+}
+
+function candidatasSelecionadas() {
+  return [...$("fitcandidatas").querySelectorAll("input:checked")].map(i => i.value);
+}
+
+function atualizarDadosAjuste() {
+  dadosAjuste = parseLista($("fitdados").value);
+  if (dadosAjuste.length < 5) {
+    $("fitdesc").innerHTML = `<div class="nota">São necessárias ao menos 5 observações
+      numéricas. Encontrei ${dadosAjuste.length}.</div>`;
+    $("ajustar").disabled = true;
+    return;
+  }
+  const d = JSON.parse(py.globals.get("descrever_dados")(JSON.stringify(dadosAjuste)));
+  let html = `<div class="metricas">` + Object.entries(d).map(([k, v]) =>
+    `<div class="metrica"><div class="rot">${k}</div><div class="val">${
+      k === "n" ? v : fmt(v)}</div></div>`).join("") + `</div>`;
+  if (d.n < 30) {
+    html += `<div class="aviso">Apenas ${d.n} observações. Com amostras pequenas o ranking
+      entre distribuições é instável e os testes de aderência têm pouco poder: quase nenhuma
+      candidata será rejeitada. Trate o resultado como exploratório.</div>`;
+  }
+  $("fitdesc").innerHTML = html;
+  $("ajustar").disabled = false;
+}
+$("fitdados").addEventListener("input", () => { if (py) atualizarDadosAjuste(); });
+
+$("fitarquivo").addEventListener("click", () => $("arqcsv").click());
+$("arqcsv").addEventListener("change", async (e) => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const texto = await f.text();
+  const linhas = texto.split(/\r?\n/).filter(l => l.trim());
+  // usa a primeira coluna que seja numerica na maioria das linhas
+  const sep = texto.includes(";") && !texto.includes(",") ? ";" : ",";
+  const matriz = linhas.map(l => l.split(sep));
+  const ncols = Math.max(...matriz.map(r => r.length));
+  let melhor = -1, melhorQtd = 0;
+  for (let c = 0; c < ncols; c++) {
+    const qtd = matriz.filter(r => r[c] !== undefined && !isNaN(parseFloat(r[c]))).length;
+    if (qtd > melhorQtd) { melhorQtd = qtd; melhor = c; }
+  }
+  if (melhor < 0) {
+    $("fitarqmsg").textContent = "Nenhuma coluna numérica encontrada.";
+  } else {
+    const vals = matriz.map(r => parseFloat(r[melhor])).filter(v => !isNaN(v));
+    $("fitdados").value = vals.join(", ");
+    $("fitarqmsg").textContent = `${vals.length} valores da coluna ${melhor + 1} de "${f.name}".`;
+    atualizarDadosAjuste();
+  }
+  e.target.value = "";
+});
+
+$("ajustar").addEventListener("click", async () => {
+  const cands = candidatasSelecionadas();
+  if (!cands.length) { $("fitstatus").textContent = "Selecione ao menos uma candidata."; return; }
+  $("ajustar").disabled = true;
+  $("fitstatus").textContent = "Ajustando e reamostrando…";
+  await new Promise(r => setTimeout(r, 30));
+  try {
+    const res = JSON.parse(py.globals.get("ajustar")(JSON.stringify({
+      dados: dadosAjuste, candidatas: cands,
+      bootstrap: Number($("fitboot").value), seed: Number($("seed").value),
+    })));
+    if (!res.linhas.length) {
+      $("fitstatus").textContent = "";
+      $("fitres").classList.add("oculto");
+      $("fitdesc").innerHTML += `<div class="erro">Nenhum ajuste convergiu para as
+        candidatas selecionadas.</div>`;
+    } else {
+      mostrarAjuste(res);
+      $("fitstatus").textContent = `${res.linhas.length} candidata(s) ajustada(s).`;
+    }
+  } catch (e) {
+    $("fitstatus").textContent = "";
+    $("fitdesc").innerHTML += `<div class="erro">Falha no ajuste: ${esc(e.message || e)}</div>`;
+  }
+  $("ajustar").disabled = false;
+});
+
+function mostrarAjuste(res) {
+  $("fitres").classList.remove("oculto");
+  const cols = ["distribuicao", "peso_akaike", "n_params", "logL", "AIC", "AICc", "BIC",
+                "KS", "KS_p_boot", "AD", "AD_p_boot", "parametros"];
+  $("tabfit").innerHTML = "<tr>" + cols.map(c => `<th>${c}</th>`).join("") + "</tr>" +
+    res.linhas.map(l => "<tr>" + cols.map(c => {
+      const v = l[c];
+      if (c === "distribuicao" || c === "parametros") return `<td>${esc(v === null ? "—" : v)}</td>`;
+      if (c === "n_params") return `<td>${v}</td>`;
+      return `<td>${fmt(v, 4)}</td>`;
+    }).join("") + "</tr>").join("");
+
+  const avisos = [];
+  const melhor = res.linhas[0];
+  if (melhor.peso_akaike < 0.6 && res.linhas.length > 1) {
+    avisos.push(`O peso de Akaike da primeira colocada é ${fmt(melhor.peso_akaike, 2)}: os dados
+      não distinguem claramente entre as candidatas. Escolher apenas a vencedora subestima a
+      incerteza de modelo. Considere rodar a simulação com mais de uma distribuição e comparar.`);
+  }
+  if (melhor.KS_p_boot !== null && melhor.KS_p_boot !== undefined && melhor.KS_p_boot < 0.05) {
+    avisos.push(`Mesmo a distribuição melhor colocada é rejeitada pelo teste K-S
+      (p = ${fmt(melhor.KS_p_boot, 3)}). Nenhuma candidata descreve bem estes dados — usar
+      qualquer uma delas na simulação propaga um erro de especificação.`);
+  }
+  if (Number($("fitboot").value) === 0) {
+    avisos.push(`Bootstrap desligado: sem p-valor, a tabela só ORDENA as candidatas e não
+      responde se alguma delas é compatível com os dados.`);
+  }
+  $("fitavisos").innerHTML = avisos.map(a => `<div class="aviso">${a}</div>`).join("");
+
+  $("fitinspecionar").innerHTML = res.linhas.map(l =>
+    `<option value="${esc(l.distribuicao)}">${esc(l.distribuicao)}</option>`).join("");
+  desenharAjuste();
+}
+
+$("fitinspecionar").addEventListener("change", desenharAjuste);
+
+function desenharAjuste() {
+  const nome = $("fitinspecionar").value;
+  if (!nome) return;
+  let d;
+  try { d = JSON.parse(py.globals.get("detalhe_ajuste")(nome)); }
+  catch (e) { return; }
+  Plotly.newPlot("fitdens", [
+    { x: d.dados, type: "histogram", histnorm: "probability density",
+      nbinsx: Math.min(50, Math.max(10, Math.round(Math.sqrt(d.dados.length)))),
+      marker: { color: "#9ca3af" }, opacity: 0.6, name: "dados" },
+    { x: d.grade, y: d.densidade, type: "scatter", mode: "lines",
+      line: { color: "#2563eb", width: 3 }, name: d.nome },
+  ], Object.assign({}, LAYOUT, { title: "Densidade", showlegend: true }), OPCOES);
+
+  const lim = [Math.min(...d.qq_teorico, ...d.qq_amostral),
+               Math.max(...d.qq_teorico, ...d.qq_amostral)];
+  Plotly.newPlot("fitqq", [
+    { x: d.qq_teorico, y: d.qq_amostral, type: "scattergl", mode: "markers",
+      marker: { size: 5, color: "#2563eb", opacity: 0.6 }, name: "quantis" },
+    { x: lim, y: lim, type: "scatter", mode: "lines",
+      line: { dash: "dash", color: "#dc2626" }, name: "ajuste perfeito" },
+  ], Object.assign({}, LAYOUT, { title: "Q-Q plot", showlegend: true,
+      xaxis: { title: "quantis teóricos" }, yaxis: { title: "quantis amostrais" } }), OPCOES);
+
+  $("fitparams").innerHTML = `<p class="dica"><strong>Parâmetros ajustados (${esc(d.nome)}):</strong>
+    <code>${d.params.map(p => fmt(p, 6)).join(", ")}</code> — na parametrização loc/scale do
+    <code>scipy.stats</code>. Confira a correspondência antes de transcrever para a aba 1.</p>`;
 }
 
 // ---------------------------------------------------------------- exportar
@@ -807,12 +1466,22 @@ function baixar(nome, texto, tipo) {
 $("baixarcsv").addEventListener("click", () => {
   if (!ultimoResultado) return;
   baixar("simulacao_iteracoes.csv",
-         py.globals.get("csv_iteracoes")("Resultado"), "text/csv");
+         py.globals.get("csv_iteracoes")($("nomesaida").value || "Resultado"), "text/csv");
 });
 
 $("baixarjson").addEventListener("click", () => {
   if (!ultimoPayload) return;
-  baixar("modelo.json", JSON.stringify(ultimoPayload, null, 2), "application/json");
+  const spec = {
+    iteracoes: ultimoPayload.iteracoes, metodo: ultimoPayload.metodo,
+    semente: ultimoPayload.seed, formula: ultimoPayload.formula,
+    replicas: ultimoPayload.replicas,
+    variaveis: ultimoPayload.variaveis.map(v => ({
+      nome: v.name, rotulo: v.label, distribuicao: v.dist,
+      parametros: v.params, valores: v.values, probabilidades: v.probs, dados: v.data,
+    })),
+    correlacao: ultimoPayload.correlacao,
+  };
+  baixar("modelo.json", JSON.stringify(spec, null, 2), "application/json");
 });
 
 // ----------------------------------------------------------------
