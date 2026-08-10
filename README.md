@@ -20,16 +20,23 @@ cache.
 
 ---
 
-## Duas interfaces
+## Duas interfaces, mesmo motor
 
 | | Versão web | Versão Streamlit |
 |---|---|---|
 | Acesso | [link direto](https://jmagomez.github.io/mcrisk-dashboard/), sem instalar | `streamlit run app.py` |
 | Motor | idêntico (`mcrisk/`, via Pyodide) | idêntico (`mcrisk/`) |
-| Variáveis, correlação, fórmula, resultados, tornado | sim | sim |
-| Ajuste de distribuições a dados | não | sim |
-| Replicações independentes | não | sim |
-| Exportação Excel | não (CSV e JSON) | sim |
+| Variáveis, correlação, fórmula, resultados | sim | sim |
+| Prévia das marginais, tornado, dispersão, convergência | sim | sim |
+| Ajuste de distribuições a dados | sim | sim |
+| Replicações independentes | sim | sim |
+| Importar especificação (JSON) | sim | não |
+| Exportação | CSV, JSON | CSV, JSON, Excel |
+| Velocidade | limitada pelo WebAssembly | nativa |
+
+Para modelos grandes (centenas de milhares de iterações, ou replicações com
+muitas réplicas), use a versão Streamlit: o Pyodide roda na mesma thread da
+interface, e a aba fica travada durante o cálculo.
 
 ---
 
@@ -137,8 +144,9 @@ clássico `s/√n` deixa de ser válido (Stein, 1987). O app avisa disso e ofere
 
 ## Defeitos encontrados em auditoria, e corrigidos
 
-Os testes de interface e uma revisão linha a linha encontraram quatro defeitos
-reais. Todos têm teste de regressão que **falha na versão anterior** do código.
+Uma revisão linha a linha e os testes de interface encontraram seis defeitos
+reais. Os quatro primeiros têm teste de regressão que **falha na versão
+anterior** do código.
 
 1. **Correlação dividida pela metade, em silêncio.** A tela pedia "preencha
    apenas um triângulo", e o código fazia `(C + C.T)/2` — o que transforma o
@@ -155,6 +163,15 @@ reais. Todos têm teste de regressão que **falha na versão anterior** do códi
 4. **`achieved_spearman` devolvia matriz 1×1 com exatamente duas variáveis**,
    porque `scipy.stats.spearmanr` retorna escalar nesse caso. Passou
    despercebido porque todos os testes anteriores usavam três variáveis.
+5. **Na versão web, não dava para digitar mais de um caractere por campo.**
+   Cada evento `input` reconstruía a lista de variáveis com `innerHTML`,
+   destruindo o próprio campo em uso. Reportado por um usuário — os testes
+   automatizados não pegaram porque setavam `.value` de uma vez e disparavam
+   um único evento, o que nunca reproduz digitação.
+6. **Parâmetros com valor padrão apareciam preenchidos mas não eram
+   registrados.** O campo `lambda` da PERT mostrava `4` e o app dizia
+   "parâmetro ausente: lam". Como PERT é a distribuição padrão, isso travava
+   a primeira coisa que qualquer pessoa tenta.
 
 O primeiro é o mais instrutivo: não quebrava nada. Só produzia números
 plausíveis e errados — exatamente o modo de falha que o `LIMITATIONS.md`
@@ -179,8 +196,13 @@ avaliador de fórmulas.
 `streamlit.testing.v1.AppTest` e conferem os números exibidos na tela contra a
 solução analítica.
 
-**26 de auditoria** (`tests/test_auditoria.py`) — os quatro defeitos acima,
+**26 de auditoria** (`tests/test_auditoria.py`) — os defeitos 1 a 4 acima,
 cada um verificado contra a versão defeituosa antes da correção.
+
+A versão web não é coberta por essa suíte — ela roda o mesmo motor, mas a
+camada de interface é JavaScript e foi verificada manualmente, conferindo os
+números exibidos contra a solução analítica. Os defeitos 5 e 6 estavam
+exatamente nessa lacuna.
 
 ---
 
