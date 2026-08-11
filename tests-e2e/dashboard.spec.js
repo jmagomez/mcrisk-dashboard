@@ -32,9 +32,14 @@ const {
   normaisDeterministicas,
 } = require("./ajudantes");
 
-// Uma pagina compartilhada: assim o Pyodide e os pacotes ficam no cache HTTP
-// do contexto e cada teste paga so a reinicializacao, nao o download.
-test.describe.configure({ mode: "serial" });
+// Uma pagina compartilhada entre os testes: assim o Pyodide e os pacotes ficam
+// no cache HTTP do contexto e cada teste paga so a reinicializacao, nao o
+// download de ~30 MB.
+//
+// NAO usamos `mode: "serial"`. Ele pula todos os testes seguintes assim que um
+// falha — justamente na execucao em que mais se precisa do panorama completo.
+// O isolamento entre testes vem do `page.reload()` no `beforeEach`, que nao
+// depende de o teste anterior ter passado.
 
 let page;
 
@@ -60,7 +65,6 @@ test.beforeEach(async () => {
 test("a interface carrega e nao traz numeros pre-preenchidos", async () => {
   await expect(page.locator(".abas button")).toHaveCount(6);
   await expect(page.locator("#metricas .metrica")).toHaveCount(0);
-  // O rotulo comeca vazio: nenhum valor e sugerido ao usuario.
   await expect(cartao(page, 0).locator('input[data-campo="label"]')).toHaveValue("");
 });
 
@@ -71,7 +75,7 @@ test("a interface carrega e nao traz numeros pre-preenchidos", async () => {
 test("digitar preserva todos os caracteres e nao rouba o foco", async () => {
   const c = cartao(page, 0);
 
-  // (a) rotulo, 14 caracteres
+  // (a) rotulo, 13 caracteres
   const rotulo = c.locator('input[data-campo="label"]');
   await rotulo.click();
   await rotulo.pressSequentially("custo da obra", { delay: 15 });
@@ -248,11 +252,14 @@ test("o ajuste elege a familia correta e recupera os parametros", async () => {
   await expect(primeira.locator("td").first()).toHaveText("normal");
 
   // E os parametros ajustados devem estar proximos dos que geraram os dados.
+  // O paragrafo tem dois <code> (os parametros e a mencao a scipy.stats);
+  // queremos o primeiro. E o separador e ", " porque em pt-BR a virgula
+  // tambem e o separador decimal.
   await expect(page.locator("#fitparams")).toContainText("normal");
-  const texto = await page.locator("#fitparams code").innerText();
-  const [loc, escala] = texto.split(",").map((s) => numero(s));
-  expect(loc).toBeCloseTo(50, 0);
-  expect(escala).toBeCloseTo(8, 0);
+  const texto = await page.locator("#fitparams code").first().innerText();
+  const partes = texto.split(", ").map((s) => numero(s));
+  expect(partes[0]).toBeCloseTo(50, 0);
+  expect(partes[1]).toBeCloseTo(8, 0);
 
   // Sob H0 verdadeira o bootstrap nao deve rejeitar.
   const pKS = numero(await primeira.locator("td").nth(8).innerText());
