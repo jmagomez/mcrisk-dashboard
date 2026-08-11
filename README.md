@@ -1,5 +1,8 @@
 # mcrisk — Dashboard de Simulação de Monte Carlo para Análise de Risco
 
+[![tests](https://github.com/jmagomez/mcrisk-dashboard/actions/workflows/tests.yml/badge.svg)](https://github.com/jmagomez/mcrisk-dashboard/actions/workflows/tests.yml)
+[![e2e](https://github.com/jmagomez/mcrisk-dashboard/actions/workflows/e2e.yml/badge.svg)](https://github.com/jmagomez/mcrisk-dashboard/actions/workflows/e2e.yml)
+
 Dashboard em Python para análise quantitativa de risco por simulação de Monte
 Carlo. Substitui valores fixos por distribuições de probabilidade e propaga a
 incerteza até o resultado — o mesmo princípio do add-in @RISK, aqui
@@ -145,8 +148,7 @@ clássico `s/√n` deixa de ser válido (Stein, 1987). O app avisa disso e ofere
 ## Defeitos encontrados em auditoria, e corrigidos
 
 Uma revisão linha a linha e os testes de interface encontraram seis defeitos
-reais. Os quatro primeiros têm teste de regressão que **falha na versão
-anterior** do código.
+reais. Todos têm teste de regressão.
 
 1. **Correlação dividida pela metade, em silêncio.** A tela pedia "preencha
    apenas um triângulo", e o código fazia `(C + C.T)/2` — o que transforma o
@@ -165,9 +167,7 @@ anterior** do código.
    despercebido porque todos os testes anteriores usavam três variáveis.
 5. **Na versão web, não dava para digitar mais de um caractere por campo.**
    Cada evento `input` reconstruía a lista de variáveis com `innerHTML`,
-   destruindo o próprio campo em uso. Reportado por um usuário — os testes
-   automatizados não pegaram porque setavam `.value` de uma vez e disparavam
-   um único evento, o que nunca reproduz digitação.
+   destruindo o próprio campo em uso.
 6. **Parâmetros com valor padrão apareciam preenchidos mas não eram
    registrados.** O campo `lambda` da PERT mostrava `4` e o app dizia
    "parâmetro ausente: lam". Como PERT é a distribuição padrão, isso travava
@@ -177,9 +177,15 @@ O primeiro é o mais instrutivo: não quebrava nada. Só produzia números
 plausíveis e errados — exatamente o modo de falha que o `LIMITATIONS.md`
 argumenta ser o mais perigoso em análise de risco.
 
+Os defeitos 5 e 6 foram relatados por usuário, não pelos testes. Eram da
+versão de navegador, que na época não tinha suíte automatizada. Essa lacuna
+está fechada — ver abaixo.
+
 ---
 
 ## Testes
+
+### Motor e interface Streamlit — `pytest`
 
 ```bash
 pytest -q            # 236 testes
@@ -199,10 +205,22 @@ solução analítica.
 **26 de auditoria** (`tests/test_auditoria.py`) — os defeitos 1 a 4 acima,
 cada um verificado contra a versão defeituosa antes da correção.
 
-A versão web não é coberta por essa suíte — ela roda o mesmo motor, mas a
-camada de interface é JavaScript e foi verificada manualmente, conferindo os
-números exibidos contra a solução analítica. Os defeitos 5 e 6 estavam
-exatamente nessa lacuna.
+### Versão de navegador — `Playwright`
+
+```bash
+cd tests-e2e && npm install && npx playwright install --with-deps chromium && npm test
+```
+
+**13 testes de navegador** (`tests-e2e/dashboard.spec.js`), rodando contra a
+árvore de trabalho num servidor local. Cobrem digitação, prévia das marginais,
+resultados contra solução analítica, correlação, validação de entradas,
+ajuste a dados, importação e exportação.
+
+A regra que define esta suíte: **`pressSequentially`, nunca `fill`**, em
+qualquer campo cujo comportamento a cada tecla importe. Os defeitos 5 e 6
+escaparam porque a verificação anterior definia `.value` e disparava um único
+evento — o que nunca reproduz digitação. Um evento não reconstrói o DOM no
+meio da palavra; treze eventos reconstroem.
 
 ---
 
@@ -220,7 +238,8 @@ mcrisk/
   fitting.py         MLE, AIC/BIC, K-S e A-D com bootstrap
 app.py               interface Streamlit (completa)
 index.html           interface de navegador (Pyodide), publicada no GitHub Pages
-tests/               236 testes
+tests/               236 testes de motor e da interface Streamlit
+tests-e2e/           13 testes de navegador (Playwright)
 ```
 
 ---
