@@ -21,10 +21,29 @@ module.exports = defineConfig({
   use: {
     baseURL: "http://127.0.0.1:8000",
     trace: "retain-on-failure",
-    video: "retain-on-failure",
     screenshot: "only-on-failure",
+    // Video fica DESLIGADO de proposito. A gravacao exige um download separado
+    // (`npx playwright install ffmpeg`) que o workflow nao faz, e quando o
+    // ffmpeg falta o erro da gravacao substitui a falha de assert no relatorio.
+    // Ja aconteceu: dois testes que passavam apareceram como dois testes
+    // falhando, e a mensagem real sumiu. O trace cobre o mesmo proposito de
+    // depuracao, e nao tem essa dependencia.
+    video: "off",
   },
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  // CHROMIUM_PATH permite usar um Chromium ja presente na maquina em vez do
+  // binario que o Playwright baixa. Serve para ambientes cuja rede bloqueia o
+  // host de download do navegador; no CI a variavel nao existe e vale o padrao.
+  projects: [
+    {
+      name: "chromium",
+      use: {
+        ...devices["Desktop Chrome"],
+        launchOptions: process.env.CHROMIUM_PATH
+          ? { executablePath: process.env.CHROMIUM_PATH, args: ["--no-sandbox"] }
+          : {},
+      },
+    },
+  ],
   // Serve a raiz do repositorio: o teste roda contra os arquivos da arvore de
   // trabalho, nao contra o que ja esta publicado no GitHub Pages.
   webServer: {
