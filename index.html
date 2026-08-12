@@ -90,8 +90,8 @@
 
 <div id="carregando">
   <div id="passo">Carregando o ambiente Python (Pyodide)…</div>
-  <div class="barra"><div></div></div>
-  <p style="font-size:13px;margin-top:16px;max-width:560px;margin-left:auto;margin-right:auto">
+  <div class="barra" id="barra"><div></div></div>
+  <p id="notacarga" style="font-size:13px;margin-top:16px;max-width:560px;margin-left:auto;margin-right:auto">
     A primeira carga baixa Python, NumPy e SciPy compilados para WebAssembly —
     cerca de 30&nbsp;MB. Pode levar de 20&nbsp;segundos a alguns minutos na primeira
     vez, dependendo da conexão. Depois fica em cache.
@@ -1492,8 +1492,35 @@ $("baixarjson").addEventListener("click", () => {
 
 // ----------------------------------------------------------------
 
-iniciar().catch(e => {
-  $("passo").innerHTML = `<div class="erro" style="text-align:left">Falha ao carregar: ${esc(e.message || e)}</div>`;
+iniciar().catch((e) => {
+  // Quando a rede bloqueia as CDNs, o erro que chega aqui e
+  // "loadPyodide is not defined" — um nome interno que nao diz nada a quem
+  // esta olhando a tela, ainda por cima com a barra de progresso animando
+  // como se algo continuasse acontecendo. Traduzimos para a causa provavel
+  // e para o que da para fazer a respeito.
+  const semPyodide = typeof loadPyodide === "undefined";
+  const semPlotly = typeof Plotly === "undefined";
+  let msg;
+  if (semPyodide || semPlotly) {
+    const faltando = [];
+    if (semPyodide) faltando.push("<code>cdn.jsdelivr.net</code> (Pyodide)");
+    if (semPlotly) faltando.push("<code>cdn.plot.ly</code> (Plotly)");
+    msg = `<strong>Não consegui baixar as bibliotecas de ${faltando.join(" e ")}.</strong>
+      Esta página busca essas bibliotecas na internet ao abrir; sem elas não há como
+      simular nada.
+      <br><br><strong>Causa provável:</strong> você está sem conexão, ou uma rede
+      corporativa / proxy bloqueia esses domínios.
+      <br><br><strong>O que fazer:</strong> tente de outra rede, ou
+      <a href="https://github.com/jmagomez/mcrisk-dashboard#instalação-da-versão-completa"
+         target="_blank">rode a versão completa na sua máquina</a> — ela não depende de CDN.`;
+  } else {
+    msg = `<strong>Falha ao carregar.</strong> ${esc(e && e.message ? e.message : e)}`;
+  }
+  $("passo").innerHTML =
+    `<div class="erro" style="text-align:left;max-width:560px;margin:0 auto">${msg}</div>`;
+  // A barra continuar animando depois do erro sugere que ainda esta carregando.
+  $("barra").classList.add("oculto");
+  $("notacarga").classList.add("oculto");
 });
 </script>
 </body>
