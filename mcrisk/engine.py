@@ -20,6 +20,7 @@ from typing import Any, Dict, List, Sequence
 
 import numpy as np
 
+from . import copula as copula_mod
 from . import correlation as corr_mod
 from . import distributions as dists
 from . import sampling
@@ -78,6 +79,16 @@ class SimulationSpec:
     seed: int | None = 12345
     correlation: np.ndarray | None = None  # Spearman alvo (k x k)
     spearman_adjust: bool = True
+    # Como a dependencia e imposta:
+    #   "iman_conover" - reordenacao por posto; preserva as marginais EXATAMENTE
+    #                    e nao supoe forma de dependencia. Continua o padrao.
+    #   "gaussian"/"t" - copula; a dependencia passa a ter forma declarada, e a
+    #                    t admite eventos extremos conjuntos que a Gaussiana nao
+    #                    produz. As marginais seguem exatas (transformada
+    #                    inversa sobre o U da copula), mas a amostragem deixa de
+    #                    ser LHS: o U vem da copula, nao do cubo estratificado.
+    dependence: str = "iman_conover"
+    copula_df: float = 5.0
 
     def validate(self) -> List[str]:
         errs: List[str] = []
@@ -94,6 +105,16 @@ class SimulationSpec:
             errs.append("numero de iteracoes deve ser >= 2")
         if self.method not in sampling.VALID_METHODS:
             errs.append(f"metodo de amostragem invalido: {self.method}")
+        if self.dependence not in ("iman_conover",) + copula_mod.VALID_COPULAS:
+            errs.append(f"esquema de dependencia invalido: {self.dependence}")
+        if self.dependence == "t" and (
+            not np.isfinite(self.copula_df) or self.copula_df < copula_mod.DF_MINIMO
+        ):
+            errs.append(
+                f"graus de liberdade da copula t devem ser >= {copula_mod.DF_MINIMO:g}"
+            )
+        if self.dependence != "iman_conover" and self.correlation is None:
+            errs.append("copula exige matriz de correlacao")
         try:
             Formula(self.formula, names)
         except Exception as e:
@@ -136,7 +157,33 @@ def run(spec: SimulationSpec, strict: bool = True) -> SimulationResult:
     k, n = len(spec.variables), int(spec.iterations)
 
     # 1-2. amostragem e transformada inversa
-    U = sampling.unit_samples(n, k, method=spec.method, rng=rng)  # type: ignore[arg-type]
+    usa_copula = spec.dependence in copula_mod.VALID_COPULAS and spec.correlation is not None
+    if usa_copula and k > 1:
+        U, reparado = copula_mod.copula_u(
+            spec.dependence, np.asarray(spec.correlation, dtype=float), n, rng,
+            df=spec.copula_df, spearman_adjust=spec.spearman_adjust,
+        )
+        if reparado:
+            notes.append(
+                "A matriz informada nao admitia decomposicao de Cholesky: foi usada "
+                "a positiva semidefinida mais proxima (Higham, 2002). As correlacoes "
+                "efetivas DIFEREM das pedidas -- leia a tabela de correlacao obtida."
+            )
+        notes.append(
+            f"Dependencia por copula {spec.dependence}"
+            + (f" com {spec.copula_df:g} graus de liberdade" if spec.dependence == "t" else "")
+            + ". A amostragem estratificada (LHS) NAO se aplica neste modo: o cubo "
+            "unitario vem da copula. O erro de simulacao tende a ser maior que no "
+            "modo Iman-Conover para o mesmo numero de iteracoes."
+        )
+        if spec.dependence == "t" and spec.spearman_adjust:
+            notes.append(
+                "A conversao Spearman->Pearson e exata apenas para a copula "
+                "Gaussiana. Para a t ha desvio de segunda ordem que cresce quando "
+                "os graus de liberdade caem."
+            )
+    else:
+        U = sampling.unit_samples(n, k, method=spec.method, rng=rng)  # type: ignore[arg-type]
     X = np.empty((n, k), dtype=float)
     for j, v in enumerate(spec.variables):
         X[:, j] = v.ppf(U[:, j])
@@ -149,8 +196,8 @@ def run(spec: SimulationSpec, strict: bool = True) -> SimulationResult:
             f"descartados nas estatisticas."
         )
 
-    # 3. correlacao
-    if spec.correlation is not None and k > 1:
+    # 3. correlacao (so no modo Iman-Conover; a copula ja embutiu a dependencia)
+    if spec.correlation is not None and k > 1 and not usa_copula:
         C = np.asarray(spec.correlation, dtype=float)
         if np.linalg.eigvalsh(
             corr_mod.spearman_to_pearson_normal(C) if spec.spearman_adjust else C
@@ -215,6 +262,8 @@ def run_replicates(
             seed=base + r * 7919,  # primo, para afastar os fluxos
             correlation=spec.correlation,
             spearman_adjust=spec.spearman_adjust,
+            dependence=spec.dependence,
+            copula_df=spec.copula_df,
         )
         res = run(sub)
         outs.append(res.output)
