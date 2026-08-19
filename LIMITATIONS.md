@@ -44,11 +44,13 @@ Comparado ao @RISK e a ferramentas equivalentes, faltam aqui:
 - **Índices de sensibilidade globais (Sobol).** Só há índices baseados em
   correlação/regressão de postos, válidos apenas sob monotonicidade. Índices de
   Sobol exigem desenho amostral próprio e avaliações adicionais do modelo.
-- **Cópulas.** A dependência é imposta só via estrutura de postos
-  (Iman-Conover). Não há cópula de Clayton, Gumbel ou t, e portanto **não há
-  como modelar dependência de cauda** — o fenômeno em que variáveis se tornam
-  mais correlacionadas justamente em cenários extremos. Isso importa muito em
-  risco financeiro e de crédito.
+- **Cópulas assimétricas e ajuste de cópula a dados.** Há cópula Gaussiana e t
+  de Student, além da estrutura de postos (Iman-Conover) — e portanto **há**
+  como modelar dependência de cauda. Mas não há Clayton nem Gumbel, que dão
+  caudas assimétricas (só inferior ou só superior); a t é radialmente
+  simétrica. Mais importante: a cópula é **escolhida por você**, com os graus
+  de liberdade informados a mão. Nada aqui estima a estrutura de dependência a
+  partir de dados nem testa sua aderência. Ver §3.
 - **Processos estocásticos e séries temporais.** Cada iteração é um sorteio
   independente no tempo. Não há movimento browniano, reversão à média,
   autocorrelação, sazonalidade ou GARCH.
@@ -81,21 +83,65 @@ Comparado ao @RISK e a ferramentas equivalentes, faltam aqui:
   variabilidade dentro do estrato** e não deve ser usado quando a cauda
   importa.
 
-### Correlação (Iman-Conover)
+### Dependência por postos (Iman-Conover)
 
 - **Correlação de posto não determina a distribuição conjunta.** Infinitas
   cópulas produzem o mesmo Spearman. A estrutura efetivamente imposta é a
   induzida por escores normais — na prática, próxima de uma cópula gaussiana,
   que tem **dependência de cauda zero**. Se o seu risco é "tudo dá errado ao
-  mesmo tempo", este método não o captura.
+  mesmo tempo", este método não o captura — use a cópula t, com as ressalvas
+  logo abaixo.
 - **A correlação obtida é aproximada**, não exata. O erro medido é da ordem de
   0,001–0,02 dependendo de n e da matriz alvo.
-- **Matrizes não positivas semidefinidas são reparadas silenciosamente** pelo
-  motor (com aviso na interface). Isso significa que as correlações efetivas
-  diferem das pedidas. Sempre confira a matriz obtida.
+- **Matrizes não positivas semidefinidas são reparadas** pelo motor, com aviso
+  na interface. Isso significa que as correlações efetivas diferem das pedidas.
+  Sempre confira a tabela de correlação **obtida**.
 - **Correlação imposta não é mecanismo causal.** Se duas variáveis se movem
   juntas porque ambas dependem do câmbio, o correto é modelar o câmbio como
   variável, não impor uma correlação entre elas.
+
+### Cópulas: o que a t resolve e o que ela não resolve
+
+A cópula t admite eventos extremos simultâneos que a Gaussiana não produz —
+coeficiente de dependência de cauda
+λ = 2·t_{ν+1}(−√((ν+1)(1−ρ)/(1+ρ))) > 0, contra λ = 0 na Gaussiana para
+qualquer ρ < 1. Isso corrige uma subestimação real de risco de cauda, mas não
+transforma a ferramenta em modelo calibrado.
+
+- **A escolha é sua, não dos dados.** Os graus de liberdade são um parâmetro
+  que você informa. Não há critério de informação escolhendo entre Gaussiana e
+  t, nem teste de aderência da estrutura de dependência. Ajustar cópula exige
+  série conjunta longa, e oferecer o botão sem a série daria a impressão
+  contrária.
+- **A estratificação do LHS deixa de valer.** Com cópula, o cubo unitário passa
+  a vir da própria cópula, não do desenho estratificado. Para o mesmo número de
+  iterações, o erro de simulação tende a ser **maior** que no modo
+  Iman-Conover. O app avisa isso na tela.
+- **As marginais deixam de ser preservadas exatamente.** Iman-Conover apenas
+  reordena os valores sorteados; a cópula os regenera. As marginais continuam
+  corretas em distribuição, mas não valor a valor.
+- **A conversão Spearman → Pearson vira aproximação.** `2·sen(π·ρₛ/6)` é exata
+  para a cópula Gaussiana; para a t, o ρ de Spearman também depende de ν, sem
+  forma fechada elementar. O desvio é da ordem de 0,02 para ν = 3 e ρ = 0,5.
+  Leia a tabela de correlação **obtida**, não a pedida.
+- **A t é radialmente simétrica.** Ela impõe a mesma dependência na cauda
+  superior e na inferior. Riscos com assimetria de cauda — crashes que
+  contagiam para baixo mas não para cima — pedem Clayton ou Gumbel, que não
+  estão implementadas.
+
+### Cenários: estresse não tem probabilidade
+
+Um cenário de **estresse** troca a distribuição de uma entrada e re-simula. O
+resultado vale para aquele mundo hipotético e **não** carrega a probabilidade
+do modelo original. Ele não é um percentil da distribuição base, e apresentá-lo
+como se fosse é o erro mais comum nesta área — a diferença entre "há 5% de
+chance disso" e "se isso acontecer, o resultado é este".
+
+A análise **condicional** é outra coisa: recorta iterações que já existem, com
+as probabilidades do próprio modelo. O preço é amostral — condicionar em cauda
+estreita deixa poucas iterações, e a ação de recortar não gera informação nova.
+A ferramenta avisa abaixo de 200 iterações restantes; abaixo disso as
+estatísticas do cenário são ruído.
 
 ### Fórmula de saída
 
@@ -188,8 +234,10 @@ testado contra 15 vetores de ataque conhecidos (acesso a `__class__`,
 - Quando houver exigência regulatória de ferramenta validada (modelos
   regulatórios de capital, submissões a agências). Este software não tem
   validação formal nem trilha de auditoria certificada.
-- Quando o risco relevante for de **dependência de cauda** ou **contágio** —
-  faltam cópulas apropriadas.
+- Quando a dependência de cauda precisar ser **calibrada**, e não apenas
+  admitida. A cópula t modela extremos simultâneos, mas com graus de liberdade
+  escolhidos a mão; nada aqui os estima nem testa sua aderência. Para contagio
+  com assimetria de cauda faltam Clayton e Gumbel.
 - Quando o problema for essencialmente **temporal** (evolução de preços,
   filas, confiabilidade ao longo do tempo).
 - Quando você não tiver base empírica nem elicitação estruturada para as
@@ -204,9 +252,13 @@ testado contra 15 vetores de ataque conhecidos (acesso a `__class__`,
   of Risk*. Mathematical Finance 9(3):203-228.
 - Burnham, K.P. & Anderson, D.R. (2002). *Model Selection and Multimodel
   Inference*, 2ª ed., Springer.
+- Demarta, S. & McNeil, A.J. (2005). *The t Copula and Related Copulas*.
+  International Statistical Review 73(1):111-129.
 - Embrechts, P., McNeil, A. & Straumann, D. (2002). *Correlation and Dependence
   in Risk Management: Properties and Pitfalls*. In: Risk Management: Value at
   Risk and Beyond, Cambridge University Press.
+- McNeil, A.J., Frey, R. & Embrechts, P. (2015). *Quantitative Risk Management:
+  Concepts, Techniques and Tools*, ed. revisada. Princeton University Press.
 - Saltelli, A. et al. (2020). *Five ways to ensure that models serve society: a
   manifesto*. Nature 582:482-484.
 - Savage, S.L. (2009). *The Flaw of Averages*, Wiley.
