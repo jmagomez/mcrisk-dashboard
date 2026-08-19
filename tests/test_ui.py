@@ -193,7 +193,14 @@ def test_tornado_ordena_a_variavel_dominante_em_primeiro():
     campo_formula(at).set_value("10*a + b").run()
     botao(at, "Rodar simulacao").click().run()
     assert not at.exception, [str(e.value) for e in at.exception]
-    df = at.dataframe[-1].value  # tabela de sensibilidade (ordenada)
+    # Localiza a tabela pelo CONTEUDO, nao pela posicao: `at.dataframe[-1]`
+    # amarrava o teste a quantas tabelas existem na aba, e quebrou quando a
+    # secao de cenarios foi acrescentada depois da sensibilidade. Um teste que
+    # falha por causa de layout nao esta testando sensibilidade.
+    tabelas = [d.value for d in at.dataframe
+               if hasattr(d.value, "columns") and "variavel" in d.value.columns]
+    assert tabelas, "tabela de sensibilidade nao encontrada na tela"
+    df = tabelas[-1]
     assert list(df["variavel"])[0] == "a"
     assert abs(df["spearman"].iloc[0]) > abs(df["spearman"].iloc[1])
 
@@ -430,3 +437,135 @@ def test_os_tres_botoes_de_exportacao_aparecem_apos_simular():
     assert any("CSV" in r for r in rotulos)
     assert any("Excel" in r for r in rotulos)
     assert any("JSON" in r for r in rotulos)
+
+
+# ---------------------------------------------------------------------------
+# Interface das capacidades novas: copulas, correlacao obtida e cenarios
+# ---------------------------------------------------------------------------
+
+
+def _com_duas_variaveis(iteracoes: int = 20_000) -> AppTest:
+    at = novo_app()
+    at.number_input[0].set_value(iteracoes).run()
+    add_var(at, 1, "a", "normal", {"mu": 0, "sigma": 1})
+    add_var(at, 2, "b", "normal", {"mu": 0, "sigma": 1})
+    campo_formula(at).set_value("a + b").run()
+    return at
+
+
+def _ligar_correlacao(at: AppTest, rho: float = 0.6) -> AppTest:
+    # A caixa nao tem `key` (o app grava o retorno direto em session_state),
+    # entao ela e localizada pelo rotulo. Localizar por indice quebraria a cada
+    # caixa nova acrescentada acima dela.
+    caixas = [c for c in at.checkbox if "correlacao" in (c.label or "").lower()]
+    assert caixas, "caixa de aplicar correlacao nao encontrada"
+    caixas[0].set_value(True).run()
+    assert not at.exception, [str(e.value) for e in at.exception]
+    df = at.session_state["corr_df"]
+    df.iloc[0, 1] = rho
+    df.iloc[1, 0] = rho
+    at.session_state["corr_df"] = df
+    at.run()
+    return at
+
+
+def test_seletor_de_dependencia_aparece_e_tem_iman_conover_como_padrao():
+    at = _com_duas_variaveis()
+    escolhas = [r for r in at.radio if r.key == "dependence"]
+    assert escolhas, "o esquema de dependencia precisa estar visivel na aba de correlacao"
+    assert escolhas[0].value == "iman_conover", (
+        "mudar o padrao em silencio alteraria todo resultado ja publicado"
+    )
+
+
+def test_copula_t_mostra_o_coeficiente_de_dependencia_de_cauda():
+    at = _com_duas_variaveis()
+    _ligar_correlacao(at, 0.6)
+    at.radio(key="dependence").set_value("t").run()
+    assert not at.exception, [str(e.value) for e in at.exception]
+    textos = " ".join(i.value for i in at.info)
+    assert "dependencia de cauda" in textos
+    assert "zero" in textos.lower(), (
+        "o contraste com a Gaussiana e a informacao que justifica a escolha"
+    )
+
+
+def test_copula_gaussiana_avisa_que_nao_ha_dependencia_de_cauda():
+    at = _com_duas_variaveis()
+    _ligar_correlacao(at, 0.6)
+    at.radio(key="dependence").set_value("gaussian").run()
+    assert not at.exception, [str(e.value) for e in at.exception]
+    legendas = " ".join(c.value for c in at.caption)
+    assert "cauda ZERO" in legendas or "cauda zero" in legendas.lower()
+
+
+def test_simulacao_com_copula_t_roda_pela_interface():
+    at = _com_duas_variaveis(30_000)
+    _ligar_correlacao(at, 0.6)
+    at.radio(key="dependence").set_value("t").run()
+    botao(at, "Rodar simulacao").click().run()
+    assert not at.exception, [str(e.value) for e in at.exception]
+    res = at.session_state["resultado"]
+    assert res.spec.dependence == "t"
+    assert res.n == 30_000
+
+
+def test_tabela_de_correlacao_obtida_aparece_apos_simular():
+    """O motor manda o usuario conferir esta tabela; ela precisa existir."""
+    at = _com_duas_variaveis(30_000)
+    _ligar_correlacao(at, 0.6)
+    botao(at, "Rodar simulacao").click().run()
+    assert not at.exception, [str(e.value) for e in at.exception]
+    titulos = " ".join(m.value for m in at.markdown)
+    assert "Obtida na amostra" in titulos and "Pedida" in titulos
+
+
+def test_correlacao_obtida_bate_com_a_pedida_na_tela():
+    at = _com_duas_variaveis(40_000)
+    _ligar_correlacao(at, 0.6)
+    botao(at, "Rodar simulacao").click().run()
+    tabelas = [d.value for d in at.dataframe
+               if hasattr(d.value, "shape") and d.value.shape == (2, 2)]
+    assert tabelas, "matrizes 2x2 nao encontradas na tela"
+    obtida = tabelas[-1].to_numpy(dtype=float)
+    assert obtida[0, 1] == pytest.approx(0.6, abs=0.03)
+    assert obtida[0, 0] == pytest.approx(1.0)
+
+
+def test_sem_correlacao_a_secao_explica_em_vez_de_sumir():
+    at = _com_duas_variaveis()
+    botao(at, "Rodar simulacao").click().run()
+    legendas = " ".join(c.value for c in at.caption)
+    assert "independentes" in legendas
+
+
+def test_painel_de_cenario_condicional_recorta_a_amostra():
+    at = _com_duas_variaveis(30_000)
+    botao(at, "Rodar simulacao").click().run()
+    assert not at.exception, [str(e.value) for e in at.exception]
+    legendas = " ".join(c.value for c in at.caption)
+    assert "iteracoes" in legendas, "o painel condicional precisa reportar a contagem"
+
+
+def test_cenario_de_estresse_roda_e_reporta_delta():
+    at = _com_duas_variaveis(20_000)
+    botao(at, "Rodar simulacao").click().run()
+    at.number_input(key="est_a_mu").set_value(5.0).run()
+    botao(at, "Rodar cenario de estresse").click().run()
+    assert not at.exception, [str(e.value) for e in at.exception]
+    tabelas = [d.value for d in at.dataframe
+               if hasattr(d.value, "columns") and "delta" in d.value.columns]
+    assert tabelas, "tabela de estresse nao apareceu"
+    linha = tabelas[-1].set_index("metrica").loc["media"]
+    assert float(linha["delta"]) == pytest.approx(5.0, abs=0.15), (
+        "deslocar mu de 'a' em 5 tem de deslocar a media de a+b em 5"
+    )
+
+
+def test_estresse_avisa_que_o_cenario_nao_tem_probabilidade_do_modelo():
+    at = _com_duas_variaveis(20_000)
+    botao(at, "Rodar simulacao").click().run()
+    at.number_input(key="est_a_mu").set_value(3.0).run()
+    botao(at, "Rodar cenario de estresse").click().run()
+    avisos = " ".join(w.value for w in at.warning)
+    assert "probabilidade" in avisos
