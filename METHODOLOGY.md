@@ -171,7 +171,9 @@ poder conferir, não confiar.
 
 Correlação de posto **não determina a distribuição conjunta**. A estrutura
 imposta é a induzida por escores normais — na prática próxima de uma cópula
-gaussiana, cuja **dependência de cauda é zero**. Ver `LIMITATIONS.md` §3.
+gaussiana, cuja **dependência de cauda é zero**. Quem precisa de extremos
+simultâneos deve escolher a cópula t na aba de correlação; o que ela resolve e
+o que ela **não** resolve está em `LIMITATIONS.md` §3.
 
 ---
 
@@ -356,9 +358,16 @@ máquinas.
 
 ## 9. Cobertura de testes
 
-236 testes, em três camadas.
+425 casos de teste, a partir de 250 funções, em três camadas.
 
-### Camada 1 — motor (168 testes)
+As duas contagens medem coisas diferentes e as duas são úteis: **250** é quanto
+código de teste existe para ler e manter; **425** é quantas situações são de
+fato verificadas, porque `@pytest.mark.parametrize` multiplica uma função em
+vários casos — a varredura sobre as 21 distribuições, por exemplo, é uma função
+só e 21 casos. Dois casos ficam fora da execução padrão por serem marcados
+`slow`; rode-os com `pytest -m slow`.
+
+### Camada 1 — motor (347 casos)
 
 | Arquivo | O que garante |
 |---|---|
@@ -368,8 +377,12 @@ máquinas.
 | `test_formula.py` | Correção aritmética; 15 vetores de ataque bloqueados; sanitização de nomes |
 | `test_engine_and_stats.py` | Soma de normais vs. solução analítica; efeito da correlação na variância; **cobertura empírica** dos ICs; ganho do LHS; identificação da variável dominante com contribuições de variância conhecidas; disparo dos avisos de R² baixo e VIF alto |
 | `test_fitting.py` | Recuperação de parâmetros; AIC prefere o modelo gerador; K-S e A-D conferidos contra o SciPy; **calibração do p-valor** sob H₀; poder do teste |
+| `test_copula_cenarios.py` | Dependência de cauda da cópula t conferida contra a fórmula fechada λ = 2·t_{ν+1}(−√((ν+1)(1−ρ)/(1+ρ))); λ = 0 na Gaussiana; conversão Spearman→Pearson; cenário condicional preserva as probabilidades do modelo; estresse re-simula e reporta delta |
+| `test_validacao_estatistica.py` | Testes de aderência das marginais geradas contra a distribuição alvo; calibração sob H₀; comparação de momentos de ordem alta |
+| `test_robustez.py` | Parâmetros degenerados recusados **com mensagem**; matrizes impossíveis detectadas e o reparo **anunciado**; fórmulas patológicas; dados malformados; varredura aleatória de 80 modelos |
+| `test_desempenho.py` | Forma do crescimento do custo em N e em k (não o tempo absoluto); memória da amostra; escala de 1M de iterações |
 
-### Camada 2 — interface (42 testes)
+### Camada 2 — interface (52 testes)
 
 `test_ui.py` dirige o aplicativo de ponta a ponta com
 `streamlit.testing.v1.AppTest`: clica em "Adicionar variável", preenche
@@ -384,6 +397,12 @@ métricas renderizadas. Garante que:
 - entradas inválidas produzem mensagem de erro e **bloqueiam** o botão de
   rodar, em vez de derrubar a página;
 - tentativas de injeção de código na fórmula são barradas na interface;
+- o esquema de dependência está visível, tem Iman-Conover como padrão, e a
+  cópula t exibe o coeficiente de dependência de cauda contra o zero da
+  Gaussiana;
+- a tabela de correlação **obtida** mostra o que de fato vigorou na simulação,
+  conferida numericamente contra o alvo;
+- o cenário de estresse reporta um delta que bate com a solução analítica;
 - os três botões de exportação aparecem após a simulação.
 
 ### Camada 3 — auditoria (26 testes)
@@ -422,6 +441,7 @@ principais:
 - Coles, S. (2001). *An Introduction to Statistical Modeling of Extreme Values*. Springer.
 - Conover, W.J. (1999). *Practical Nonparametric Statistics*, 3ª ed. Wiley.
 - Davison, A.C. & Hinkley, D.V. (1997). *Bootstrap Methods and their Application*. Cambridge University Press.
+- Embrechts, P., McNeil, A. & Straumann, D. (2002). *Correlation and dependence in risk management: properties and pitfalls*. In: *Risk Management: Value at Risk and Beyond*, Cambridge University Press, 176-223.
 - Glasserman, P. (2004). *Monte Carlo Methods in Financial Engineering*. Springer.
 - Helton, J.C. & Davis, F.J. (2002). *Illustration of Sampling-Based Methods for Uncertainty and Sensitivity Analysis*. Risk Analysis 22(3):591-622.
 - Helton, J.C. & Davis, F.J. (2003). *Latin hypercube sampling and the propagation of uncertainty*. Reliab. Eng. Syst. Saf. 81(1):23-69.
@@ -431,6 +451,7 @@ principais:
 - Lilliefors, H.W. (1967). JASA 62(318):399-402.
 - Malcolm, D.G. et al. (1959). *Application of a Technique for R&D Program Evaluation*. Operations Research 7(5):646-669.
 - McKay, M.D., Beckman, R.J. & Conover, W.J. (1979). Technometrics 21(2):239-245.
+- McNeil, A.J., Frey, R. & Embrechts, P. (2015). *Quantitative Risk Management: Concepts, Techniques and Tools*, ed. revisada. Princeton University Press.
 - Saltelli, A. & Sobol', I.M. (1995). Reliab. Eng. Syst. Saf. 50(3):225-239.
 - Saltelli, A. et al. (2008). *Global Sensitivity Analysis: The Primer*. Wiley.
 - Schwarz, G. (1978). Annals of Statistics 6(2):461-464.
