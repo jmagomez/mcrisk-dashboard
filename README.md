@@ -50,6 +50,8 @@ interface, e a aba fica travada durante o cálculo.
 | Distribuições | 21 no registro (Normal, Lognormal em 2 parametrizações, Triangular, PERT, Uniforme, Beta, Gama, Exponencial, Weibull, t de Student, Logística, Gumbel, Pareto, GPD, Bernoulli, Binomial, Poisson, Binomial Negativa, Geométrica, Uniforme Discreta) + discreta customizada e reamostragem empírica |
 | Amostragem | Monte Carlo simples e Latin Hypercube (McKay et al., 1979) |
 | Correlação | Iman-Conover (1982) com correção arcsin; reparo de matriz não-PSD por Higham (2002) |
+| Dependência de cauda | Cópulas Gaussiana e t de Student, como alternativa ao Iman-Conover — só a t produz extremos simultâneos |
+| Cenários | Condicional (recorta a amostra existente) e estresse (re-simula com outra distribuição de entrada) |
 | Fórmula de saída | Expressão livre, avaliada por *parsing* AST com lista branca — **sem `eval` cru** |
 | Estatísticas | Percentis com IC não paramétrico, VaR, CVaR, P(X≤t), erro de simulação |
 | Sensibilidade | Correlação de posto e SRRC, gráfico tornado, com R² e VIF reportados |
@@ -103,6 +105,10 @@ res = run(spec)
 print(summary.describe(res.output))
 print(sensitivity.analyze(res.inputs, res.output, res.labels).as_records())
 ```
+
+Para dependência de cauda em vez de reordenação por postos, acrescente
+`dependence="t"` e `copula_df=5.0` à `SimulationSpec` — a mesma matriz de
+correlação, com extremos que ocorrem juntos.
 
 ---
 
@@ -188,17 +194,25 @@ está fechada — ver abaixo.
 ### Motor e interface Streamlit — `pytest`
 
 ```bash
-pytest -q            # 236 testes
+pytest -q            # 425 casos, a partir de 250 funções de teste
 ```
 
-**168 de motor** — momentos teóricos vs. amostrais das 21 distribuições,
+As duas contagens respondem a perguntas diferentes: **250** é quanto código de
+teste existe para ler e manter; **425** é quantas situações são efetivamente
+verificadas, porque `@pytest.mark.parametrize` multiplica uma função em vários
+casos. Dois casos ficam fora da execução padrão por serem marcados `slow`
+(1M de iterações e Iman-Conover 500k × 6); rode-os com `pytest -m slow`.
+
+**347 de motor** — momentos teóricos vs. amostrais das 21 distribuições,
 monotonicidade das ppf, preservação exata das marginais sob Iman-Conover,
-recuperação da correlação alvo, ganho de variância do LHS, ausência de viés,
+recuperação da correlação alvo, dependência de cauda das cópulas conferida
+contra a fórmula fechada, ganho de variância do LHS, ausência de viés,
 cobertura empírica dos intervalos de confiança, recuperação de parâmetros no
-ajuste, calibração dos testes de aderência e 15 vetores de ataque contra o
+ajuste, calibração dos testes de aderência, parâmetros degenerados e matrizes
+impossíveis, forma do crescimento do custo, e 15 vetores de ataque contra o
 avaliador de fórmulas.
 
-**42 de interface** (`tests/test_ui.py`) — dirigem o app de ponta a ponta com
+**52 de interface** (`tests/test_ui.py`) — dirigem o app de ponta a ponta com
 `streamlit.testing.v1.AppTest` e conferem os números exibidos na tela contra a
 solução analítica.
 
@@ -231,6 +245,8 @@ mcrisk/
   distributions.py   registro de distribuições, ppf, momentos teóricos
   sampling.py        Monte Carlo e Latin Hypercube
   correlation.py     Iman-Conover, espelhamento, reparo PSD
+  copula.py          cópulas Gaussiana e t, dependência de cauda
+  scenarios.py       cenários condicionais e de estresse
   formula.py         avaliador seguro de fórmulas (AST + lista branca)
   engine.py          orquestração da simulação
   summary.py         estatísticas de saída e erro de simulação
@@ -238,7 +254,7 @@ mcrisk/
   fitting.py         MLE, AIC/BIC, K-S e A-D com bootstrap
 app.py               interface Streamlit (completa)
 index.html           interface de navegador (Pyodide), publicada no GitHub Pages
-tests/               236 testes de motor e da interface Streamlit
+tests/               425 casos de motor e da interface Streamlit
 tests-e2e/           13 testes de navegador (Playwright)
 ```
 
