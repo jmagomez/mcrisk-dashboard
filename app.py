@@ -17,7 +17,9 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+from mcrisk import copula as copula_mod
 from mcrisk import correlation as corr_mod
+from mcrisk import scenarios as scen_mod
 from mcrisk import distributions as dists
 from mcrisk import fitting, sensitivity, summary
 from mcrisk.engine import SimulationSpec, Variable, run, run_replicates, to_dataframe
@@ -519,6 +521,54 @@ with aba_corr:
                 width="stretch",
             )
 
+        st.markdown("---")
+        st.markdown("**Como a dependencia e imposta**")
+        esquemas = {
+            "iman_conover": "Iman-Conover (posto) — padrao",
+            "gaussian": "Copula Gaussiana",
+            "t": "Copula t de Student",
+        }
+        dep = st.radio(
+            "Esquema",
+            list(esquemas),
+            format_func=lambda k: esquemas[k],
+            horizontal=True,
+            disabled=not st.session_state["usar_corr"],
+            key="dependence",
+            help=(
+                "Iman-Conover reordena as amostras: preserva as marginais "
+                "exatamente e nao supoe forma de dependencia. As copulas dao "
+                "forma declarada a dependencia — e so a t produz eventos "
+                "extremos simultaneos."
+            ),
+        )
+        if dep == "t":
+            gl = st.slider(
+                "Graus de liberdade da copula t",
+                min_value=2.0, max_value=50.0, value=5.0, step=0.5,
+                key="copula_df",
+                help="Menos graus de liberdade = cauda conjunta mais pesada.",
+            )
+            if st.session_state["usar_corr"] and len(nomes) >= 2:
+                rho_max = float(np.max(np.abs(C - np.eye(len(nomes)))))
+                lam = copula_mod.tail_dependence_t(rho_max, gl)
+                st.info(
+                    f"Com o maior |rho| da sua matriz ({rho_max:.2f}) e {gl:g} graus "
+                    f"de liberdade, o coeficiente de dependencia de cauda e "
+                    f"**{lam:.3f}**: em cerca de {lam:.1%} das vezes em que uma "
+                    f"variavel atinge um extremo, a outra tambem atinge. Sob copula "
+                    f"Gaussiana esse numero e **zero** para qualquer correlacao menor "
+                    f"que 1 — e essa e a diferenca entre as duas escolhas.",
+                    icon="💡",
+                )
+        elif dep == "gaussian":
+            st.caption(
+                "Copula Gaussiana: dependencia de cauda ZERO para qualquer "
+                "correlacao < 1. Extremos conjuntos ficam assintoticamente "
+                "independentes — foi a critica central a modelagem de credito "
+                "estruturado antes de 2008."
+            )
+
 
 # ===========================================================================
 # Aba 3 - modelo e execucao
@@ -596,6 +646,9 @@ with aba_modelo:
                 method=metodo,
                 seed=seed,
                 correlation=C,
+                dependence=(st.session_state.get("dependence", "iman_conover")
+                            if C is not None else "iman_conover"),
+                copula_df=float(st.session_state.get("copula_df", 5.0)),
             )
             try:
                 with st.spinner("Simulando..."):
@@ -911,6 +964,102 @@ with aba_result:
             )
 
         # ---------------- exportacao ----------------
+        st.markdown("---")
+        st.subheader("Correlacao obtida")
+        if res.spec.correlation is not None and len(res.names) > 1:
+            obtida = corr_mod.achieved_spearman(res.inputs)
+            pedida = np.asarray(res.spec.correlation, dtype=float)
+            emax, emed, _ = corr_mod.correlation_error(res.inputs, pedida)
+            cA, cB = st.columns(2)
+            with cA:
+                st.markdown("**Pedida (Spearman)**")
+                st.dataframe(pd.DataFrame(np.round(pedida, 3), index=res.labels,
+                                          columns=res.labels), width="stretch")
+            with cB:
+                st.markdown("**Obtida na amostra**")
+                st.dataframe(pd.DataFrame(np.round(obtida, 3), index=res.labels,
+                                          columns=res.labels), width="stretch")
+            (st.success if emax < 0.05 else st.warning)(
+                f"Maior desvio entre pedida e obtida: **{emax:.4f}** (medio {emed:.4f}).",
+                icon="✅" if emax < 0.05 else "⚠️")
+            st.caption(
+                "As mensagens do motor mandam conferir esta tabela quando a matriz "
+                "precisa de reparo. Ela e o unico lugar onde a correlacao que de fato "
+                "vigorou na simulacao aparece — a pedida e apenas o alvo."
+            )
+        else:
+            st.caption("Simulacao sem matriz de correlacao: as entradas sao independentes.")
+
+        st.markdown("---")
+        st.subheader("Cenarios")
+        st.caption(
+            "Duas perguntas diferentes. **Condicional** recorta as iteracoes que ja "
+            "existem — mesmo modelo, mesmas probabilidades. **Estresse** troca uma "
+            "distribuicao de entrada e re-simula: o resultado vale para aquele mundo "
+            "hipotetico e nao tem a probabilidade do modelo original."
+        )
+        _ta, _tb = st.tabs(["Condicional", "Estresse"])
+
+        with _ta:
+            var_c = st.selectbox("Variavel", res.names,
+                                 format_func=lambda n: res.labels[res.names.index(n)],
+                                 key="cen_var")
+            _col = res.inputs[:, res.names.index(var_c)]
+            _col = _col[np.isfinite(_col)]
+            _c1, _c2 = st.columns([1, 2])
+            with _c1:
+                op = st.radio("Condicao", ["maior que", "menor que"], key="cen_op")
+            with _c2:
+                corte = st.slider("Corte", float(np.min(_col)), float(np.max(_col)),
+                                  float(np.percentile(_col, 90)), key="cen_corte")
+            cen = scen_mod.conditional(
+                res,
+                (lambda v: v[var_c] > corte) if op == "maior que"
+                else (lambda v: v[var_c] < corte),
+                f"{var_c} {op} {corte:.4g}",
+            )
+            for _a in cen.avisos:
+                st.warning(_a, icon="⚠️")
+            if cen.n:
+                st.caption(f"{cen.n:,} de {res.n:,} iteracoes ({cen.fracao:.2%})")
+                _geral = dict(summary.describe(res.output))
+                _linhas = [{"metrica": k, "no cenario": cen.resumo[k],
+                            "no modelo inteiro": _geral.get(k, float("nan"))}
+                           for k in ("media", "p05", "p50", "p95") if k in cen.resumo]
+                st.dataframe(pd.DataFrame(_linhas), width="stretch", hide_index=True)
+
+        with _tb:
+            var_e = st.selectbox("Variavel a estressar", res.names,
+                                 format_func=lambda n: res.labels[res.names.index(n)],
+                                 key="est_var")
+            _orig = next(v for v in res.spec.variables if v.name == var_e)
+            if not _orig.params:
+                st.info("Esta variavel nao tem parametros numericos para estressar.")
+            else:
+                _novos = {}
+                _cols = st.columns(min(4, len(_orig.params)))
+                for _i, (_np_, _val) in enumerate(_orig.params.items()):
+                    with _cols[_i % len(_cols)]:
+                        _novos[_np_] = st.number_input(_np_, value=float(_val),
+                                                       key=f"est_{var_e}_{_np_}")
+                if st.button("Rodar cenario de estresse", key="btn_estresse"):
+                    _mudou = {k: v for k, v in _novos.items()
+                              if not np.isclose(v, float(_orig.params[k]))}
+                    if not _mudou:
+                        st.info("Nenhum parametro foi alterado.")
+                    else:
+                        with st.spinner("Re-simulando o cenario..."):
+                            _sr = scen_mod.stress(res.spec, {var_e: _novos},
+                                                  f"{var_e} estressada", base=res)
+                        for _a in _sr.avisos:
+                            st.warning(_a, icon="⚠️")
+                        _linhas = [{"metrica": k, "base": _sr.resumo_base[k],
+                                    "estressado": _sr.resumo_estressado[k],
+                                    "delta": _sr.delta[k], "delta %": _sr.delta_pct[k]}
+                                   for k in ("media", "p05", "p50", "p95", "var_95", "cvar_95")
+                                   if k in _sr.delta]
+                        st.dataframe(pd.DataFrame(_linhas), width="stretch", hide_index=True)
+
         st.subheader("Exportar")
         df = to_dataframe(res, output_name=nome_saida)
         e1, e2, e3 = st.columns(3)
@@ -1211,8 +1360,10 @@ with aba_metodo:
    simples ou Latin Hypercube.
 2. **Transformada inversa** — aplica a funcao quantil de cada marginal,
    coluna a coluna.
-3. **Correlacao** — se especificada, aplica Iman-Conover, que reordena as
-   colunas para atingir a correlacao de posto alvo preservando as marginais.
+3. **Dependencia** — se especificada, aplica Iman-Conover (reordena as
+   colunas para atingir a correlacao de posto alvo preservando as marginais)
+   ou uma copula (Gaussiana ou t), escolhida na aba 2. So a copula t produz
+   eventos extremos simultaneos.
 4. **Avaliacao** — calcula a formula de saida de forma vetorizada.
 5. **Diagnostico** — estatisticas, erro de simulacao, sensibilidade.
 
@@ -1242,9 +1393,11 @@ with aba_metodo:
 
 ### O que este app NAO faz
 
-Nao tem indices de Sobol, copulas alem da estrutura de postos, otimizacao
-sob incerteza, series temporais/processos estocasticos, ajuste bayesiano,
-nem integracao com Excel. Ver `LIMITATIONS.md`.
+Nao tem indices de Sobol, otimizacao sob incerteza, series temporais e
+processos estocasticos, ajuste bayesiano, nem integracao com Excel. As
+copulas disponiveis (Gaussiana e t) sao ESCOLHIDAS por voce, nao ajustadas
+aos dados: os graus de liberdade sao um parametro que voce informa, e nao ha
+teste de aderencia da estrutura de dependencia. Ver `LIMITATIONS.md`.
 """
     )
 
