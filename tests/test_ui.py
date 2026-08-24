@@ -193,12 +193,13 @@ def test_tornado_ordena_a_variavel_dominante_em_primeiro():
     campo_formula(at).set_value("10*a + b").run()
     botao(at, "Rodar simulacao").click().run()
     assert not at.exception, [str(e.value) for e in at.exception]
-    # Localiza a tabela pelo CONTEUDO, nao pela posicao: `at.dataframe[-1]`
-    # amarrava o teste a quantas tabelas existem na aba, e quebrou quando a
-    # secao de cenarios foi acrescentada depois da sensibilidade. Um teste que
-    # falha por causa de layout nao esta testando sensibilidade.
+    # Localiza por COLUNA, nao por posicao. "variavel" sozinha deixou de
+    # identificar: as tabelas de cenario e de contribuicao para a variancia
+    # tambem tem essa coluna. Quem identifica a de sensibilidade e o par
+    # (variavel, spearman).
     tabelas = [d.value for d in at.dataframe
-               if hasattr(d.value, "columns") and "variavel" in d.value.columns]
+               if hasattr(d.value, "columns")
+               and {"variavel", "spearman"} <= set(d.value.columns)]
     assert tabelas, "tabela de sensibilidade nao encontrada na tela"
     df = tabelas[-1]
     assert list(df["variavel"])[0] == "a"
@@ -408,8 +409,11 @@ def test_ajuste_a_dados_roda_e_escolhe_a_familia_correta():
     assert any(m.label == "n" for m in at.metric)
     botao(at, "Ajustar").click().run()
     assert not at.exception, [str(e.value) for e in at.exception]
-    tab = at.dataframe[-1].value
-    assert "normal" in list(tab["distribuicao"])[:3]
+    tabelas = [d.value for d in at.dataframe
+               if hasattr(d.value, "columns")
+               and {"distribuicao", "AIC"} <= set(d.value.columns)]
+    assert tabelas, "tabela de ajuste nao encontrada na tela"
+    assert "normal" in list(tabelas[0]["distribuicao"])[:3]
 
 
 def test_ajuste_avisa_com_amostra_pequena():
@@ -569,3 +573,204 @@ def test_estresse_avisa_que_o_cenario_nao_tem_probabilidade_do_modelo():
     botao(at, "Rodar cenario de estresse").click().run()
     avisos = " ".join(w.value for w in at.warning)
     assert "probabilidade" in avisos
+
+
+# ---------------------------------------------------------------------------
+# Interface dos metodos acrescentados na paridade com @RISK e ModelRisk
+# ---------------------------------------------------------------------------
+
+
+def test_os_quatro_metodos_de_sensibilidade_estao_na_tela():
+    at = _com_duas_variaveis(10_000)
+    botao(at, "Rodar simulacao").click().run()
+    escolhas = [r for r in at.radio if r.key == "sens_metodo"]
+    assert escolhas, "o seletor de metodo de sensibilidade precisa existir"
+    # `.options` traz os rotulos formatados, nao os valores; o contrato que
+    # importa e que os quatro valores sejam selecionaveis.
+    assert len(escolhas[0].options) == 4
+    assert escolhas[0].value == "srrc", (
+        "trocar o padrao mudaria em silencio o tornado de quem ja usa"
+    )
+    for valor in ("spearman", "condicional", "variancia", "srrc"):
+        at.radio(key="sens_metodo").set_value(valor).run()
+        assert not at.exception, [str(e.value) for e in at.exception]
+
+
+def test_metodo_condicional_desenha_o_spider_e_reporta_swing():
+    at = _com_duas_variaveis(10_000)
+    botao(at, "Rodar simulacao").click().run()
+    at.radio(key="sens_metodo").set_value("condicional").run()
+    assert not at.exception, [str(e.value) for e in at.exception]
+    tabelas = [d.value for d in at.dataframe
+               if hasattr(d.value, "columns") and "swing" in d.value.columns]
+    assert tabelas, "a tabela de swing por faixa nao apareceu"
+    infos = " ".join(i.value for i in at.info)
+    assert "NAO" in infos and "monotona" in infos
+
+
+def test_contribuicao_para_variancia_reporta_o_que_sobra():
+    """A parte nao explicada nao pertence a nenhuma entrada, e a tela precisa
+    dizer isso -- senao o usuario le as fracoes como se somassem 100%."""
+    at = _com_duas_variaveis(10_000)
+    botao(at, "Rodar simulacao").click().run()
+    at.radio(key="sens_metodo").set_value("variancia").run()
+    assert not at.exception, [str(e.value) for e in at.exception]
+    rotulos = [m.label for m in at.metric]
+    assert "Nao explicada" in rotulos and "Variancia explicada" in rotulos
+    tabelas = [d.value for d in at.dataframe
+               if hasattr(d.value, "columns")
+               and "fracao_variancia" in d.value.columns]
+    assert tabelas
+
+
+def test_painel_de_significancia_de_cenario_aparece_e_ordena():
+    at = _com_duas_variaveis(20_000)
+    botao(at, "Rodar simulacao").click().run()
+    assert not at.exception, [str(e.value) for e in at.exception]
+    tabelas = [d.value for d in at.dataframe
+               if hasattr(d.value, "columns")
+               and "significancia" in d.value.columns]
+    assert tabelas, "a tabela de significancia de cenario nao apareceu"
+    assert "significativa" in tabelas[-1].columns
+
+
+def test_painel_de_convergencia_reporta_criterio_e_nao_so_um_grafico():
+    at = _com_duas_variaveis(20_000)
+    botao(at, "Rodar simulacao").click().run()
+    tabelas = [d.value for d in at.dataframe
+               if hasattr(d.value, "columns")
+               and "iteracoes_ate_convergir" in d.value.columns]
+    assert tabelas, "a tabela de convergencia nao apareceu"
+    assert {"tolerancia", "erro_relativo", "convergiu"} <= set(tabelas[-1].columns)
+
+
+def test_estatisticas_menos_comuns_estao_disponiveis():
+    at = rodar_soma_de_normais(iteracoes=20_000)
+    rotulos = [m.label for m in at.metric]
+    for esperado in ("Moda", "Desvio absoluto medio", "Amplitude",
+                     "Semi-desvio (abaixo da media)", "Semi-variancia"):
+        assert esperado in rotulos, f"falta a metrica {esperado}"
+    assert any("Pearson" in r for r in rotulos), (
+        "as duas convencoes de curtose precisam aparecer nomeadas"
+    )
+
+
+def test_semi_desvio_exibido_bate_com_a_teoria():
+    """X~N(10,2), Y~N(5,1) => saida N(15, sqrt(5)); semi-desvio = sigma/sqrt(2)."""
+    at = rodar_soma_de_normais(iteracoes=50_000)
+    obtido = num(metrica(at, "Semi-desvio (abaixo da media)"))
+    assert abs(obtido - np.sqrt(5.0) / np.sqrt(2.0)) < 0.05
+
+
+def test_convencao_descendente_de_percentil_muda_os_numeros():
+    at = rodar_soma_de_normais(iteracoes=20_000)
+    def p5_exibido(a):
+        tab = [d.value for d in a.dataframe
+               if hasattr(d.value, "columns") and "percentil" in d.value.columns][0]
+        return float(tab["valor"].iloc[1])
+    asc = p5_exibido(at)
+    at.toggle(key="pct_desc").set_value(True).run()
+    assert not at.exception, [str(e.value) for e in at.exception]
+    desc = p5_exibido(at)
+    assert desc > asc, "P5 descendente e a cauda de cima, nao a de baixo"
+    assert abs(desc - st_.norm.ppf(0.95, 15.0, np.sqrt(5.0))) < 0.1
+
+
+def test_as_seis_opcoes_de_dependencia_estao_no_seletor():
+    at = _com_duas_variaveis()
+    escolhas = [r for r in at.radio if r.key == "dependence"]
+    assert len(escolhas[0].options) == 6
+    # O seletor fica desabilitado ate a correlacao ser ligada -- copula sem
+    # matriz seria especificacao invalida, e o motor a recusaria.
+    _ligar_correlacao(at, 0.6)
+    for valor in ("gaussian", "t", "clayton", "gumbel", "frank", "iman_conover"):
+        at.radio(key="dependence").set_value(valor).run()
+        assert not at.exception, [str(e.value) for e in at.exception]
+        assert at.session_state["dependence"] == valor
+
+
+@pytest.mark.parametrize("fam", ["clayton", "gumbel", "frank"])
+def test_arquimediana_mostra_theta_e_a_cauda_calibrados(fam):
+    at = _com_duas_variaveis()
+    _ligar_correlacao(at, 0.6)
+    at.radio(key="dependence").set_value(fam).run()
+    assert not at.exception, [str(e.value) for e in at.exception]
+    rotulos = [m.label for m in at.metric]
+    assert "theta calibrado" in rotulos
+    assert "lambda inferior" in rotulos and "lambda superior" in rotulos
+
+
+def test_clayton_e_gumbel_colocam_a_cauda_em_lados_opostos_na_tela():
+    """O contraste e a razao de as duas estarem no menu. Se a tela mostrasse o
+    mesmo numero para as duas, a escolha seria decorativa."""
+    def lambdas(fam):
+        at = _com_duas_variaveis()
+        _ligar_correlacao(at, 0.6)
+        at.radio(key="dependence").set_value(fam).run()
+        return (
+            float(metrica(at, "lambda inferior")),
+            float(metrica(at, "lambda superior")),
+        )
+    ci, cs = lambdas("clayton")
+    gi, gs = lambdas("gumbel")
+    assert ci > 0 and cs == 0.0
+    assert gs > 0 and gi == 0.0
+
+
+def test_simulacao_com_arquimediana_roda_pela_interface():
+    at = _com_duas_variaveis(15_000)
+    _ligar_correlacao(at, 0.6)
+    at.radio(key="dependence").set_value("clayton").run()
+    botao(at, "Rodar simulacao").click().run()
+    assert not at.exception, [str(e.value) for e in at.exception]
+    res = at.session_state["resultado"]
+    assert res.spec.dependence == "clayton"
+    texto = " ".join(res.notes)
+    assert "calibrada em theta" in texto
+
+
+def test_comparacao_de_distribuicoes_oferece_os_quatro_formatos():
+    at = _com_duas_variaveis(10_000)
+    botao(at, "Rodar simulacao").click().run()
+    escolhas = [r for r in at.radio if r.key == "cmp_tipo"]
+    assert escolhas, "o seletor de visualizacao comparada nao apareceu"
+    assert len(escolhas[0].options) == 4
+    for tipo in ("acumulada", "box"):
+        at.radio(key="cmp_tipo").set_value(tipo).run()
+        assert not at.exception, [str(e.value) for e in at.exception]
+
+
+def test_tendencia_com_uma_serie_so_orienta_em_vez_de_quebrar():
+    at = _com_duas_variaveis(8_000)
+    botao(at, "Rodar simulacao").click().run()
+    at.radio(key="cmp_tipo").set_value("tendencia").run()
+    assert not at.exception, [str(e.value) for e in at.exception]
+    infos = " ".join(i.value for i in at.info)
+    assert "duas distribuicoes" in infos
+
+
+def test_incerteza_de_parametro_esta_disponivel_apos_o_ajuste():
+    at = novo_app()
+    dados = st_.norm(loc=50, scale=8).rvs(200, random_state=3)
+    at.text_area(key="fit_txt").set_value(", ".join(f"{v:.4f}" for v in dados)).run()
+    botao(at, "Ajustar").click().run()
+    assert not at.exception, [str(e.value) for e in at.exception]
+    at.button(key="btn_inc_param").click().run()
+    assert not at.exception, [str(e.value) for e in at.exception]
+    tabelas = [d.value for d in at.dataframe
+               if hasattr(d.value, "columns") and "erro_padrao" in d.value.columns]
+    assert tabelas, "a tabela de incerteza de parametro nao apareceu"
+    assert {"IC_inf", "IC_sup", "erro_relativo_pct"} <= set(tabelas[-1].columns)
+
+
+def test_media_de_modelos_esta_disponivel_e_usa_pesos_de_akaike():
+    at = novo_app()
+    dados = st_.lognorm(0.6, scale=np.exp(3)).rvs(150, random_state=4)
+    at.text_area(key="fit_txt").set_value(", ".join(f"{v:.4f}" for v in dados)).run()
+    botao(at, "Ajustar").click().run()
+    at.button(key="btn_model_avg").click().run()
+    assert not at.exception, [str(e.value) for e in at.exception]
+    tabelas = [d.value for d in at.dataframe
+               if hasattr(d.value, "columns") and "peso_akaike" in d.value.columns]
+    assert tabelas, "a tabela de pesos de Akaike nao apareceu"
+    assert abs(float(tabelas[-1]["peso_akaike"].sum()) - 1.0) < 1e-6
