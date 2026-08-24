@@ -104,8 +104,21 @@ def test_copula_repara_matriz_nao_psd_e_avisa():
 
 
 def test_copula_invalida_e_recusada():
+    # "clayton" ERA o exemplo de familia nao implementada aqui. Passou a ser
+    # valida, e o teste foi atualizado em vez de removido: um teste que checa
+    # a recusa de nomes desconhecidos continua util, so precisa de um nome que
+    # de fato nao exista.
     with pytest.raises(ValueError, match="copula invalida"):
-        copula.copula_u("clayton", P2, 100, np.random.default_rng(0))
+        copula.copula_u("joe", P2, 100, np.random.default_rng(0))
+
+
+def test_familias_arquimedianas_estao_disponiveis_na_interface_unica():
+    for fam in copula.ARQUIMEDIANAS:
+        u, reparo = copula.copula_u(fam, P2, 2_000, np.random.default_rng(0))
+        assert u.shape == (2_000, 2)
+        assert reparo is False, "arquimediana nao passa por reparo de Cholesky"
+        assert np.isfinite(u).all()
+        assert (u > 0).all() and (u < 1).all()
 
 
 # ---------------------------------------------------------------------------
@@ -166,7 +179,20 @@ def test_copula_sem_matriz_de_correlacao_e_recusada():
 
 def test_esquema_de_dependencia_invalido_e_recusado():
     with pytest.raises(ValueError, match="dependencia invalido"):
-        run(_duas_normais("clayton"))
+        run(_duas_normais("joe"))
+
+
+def test_motor_aceita_as_arquimedianas_e_registra_a_calibragem():
+    for fam in copula.ARQUIMEDIANAS:
+        r = run(_duas_normais(fam, iterations=8_000))
+        assert r.n == 8_000
+        assert np.isfinite(r.output).all()
+        texto = " ".join(r.notes)
+        assert f"Copula {fam} calibrada em theta" in texto, (
+            "o theta usado precisa aparecer: e o unico numero que liga o rho "
+            "pedido a dependencia de cauda efetiva"
+        )
+        assert "Dependencia de cauda" in texto
 
 
 def test_gl_invalido_na_spec_e_recusado():
