@@ -21,6 +21,9 @@ A distincao importa porque so a primeira preserva as probabilidades do modelo.
 Um numero de estresse apresentado como se fosse percentil da distribuicao
 original e leitura errada -- e e por isso que `stress` devolve os dois lados
 rotulados, nunca um numero solto.
+
+Uma terceira pergunta, na secao final: quais ENTRADAS levam ao cenario. As duas
+acima olham para a saida; `scenario_significance` olha para as entradas.
 """
 
 from __future__ import annotations
@@ -192,3 +195,186 @@ def tabela_estresse(cenarios: List[CenarioEstresse], metrica: str = "media"):
             "delta_%": c.delta_pct.get(metrica, float("nan")),
         })
     return pd.DataFrame(linhas)
+
+
+# ===========================================================================
+# Significancia de cenario (analise de mediana condicional)
+# ===========================================================================
+#
+# `conditional` acima responde "como fica a SAIDA quando o cenario ocorre?".
+# Esta secao responde a pergunta inversa e mais acionavel: "QUAIS ENTRADAS
+# levaram ate o cenario?".
+#
+# O criterio compara, para cada entrada, a mediana dos valores nas iteracoes
+# que atingiram o alvo (mediana do subconjunto) com a mediana em todas as
+# iteracoes (mediana geral), medindo a diferenca em desvios-padrao:
+#
+#     significancia = (mediana_subconjunto - mediana_geral) / desvio_padrao
+#
+# Se a entrada nao influencia o cenario, condicionar nao desloca a mediana
+# dela e a significancia fica em torno de zero. Usa-se mediana, e nao media,
+# porque o subconjunto costuma ser uma cauda: a media ali e dominada por
+# poucos valores extremos e balanca de rodada para rodada.
+#
+# LIMIAR. O @RISK trata como insignificante toda entrada com significancia
+# absoluta abaixo de 0,5, e o mesmo padrao e adotado aqui. E convencao, nao
+# teste de hipotese: nao ha p-valor associado, e o limiar nao se ajusta ao
+# tamanho do subconjunto. Com poucas iteracoes no recorte, ruido sozinho
+# produz significancias que passam de 0,5 - por isso a funcao avisa.
+
+LIMIAR_SIGNIFICANCIA = 0.5
+
+
+@dataclass
+class SignificanciaCenario:
+    """Ranking das entradas que levam a um cenario da saida."""
+
+    nome: str
+    n: int
+    fracao: float
+    names: List[str]
+    labels: List[str]
+    significancia: np.ndarray  # (k,) em desvios-padrao
+    mediana_subconjunto: np.ndarray
+    mediana_geral: np.ndarray
+    desvio: np.ndarray
+    limiar: float = LIMIAR_SIGNIFICANCIA
+    avisos: List[str] = field(default_factory=list)
+
+    def ordem(self) -> List[int]:
+        return list(np.argsort(-np.abs(np.nan_to_num(self.significancia, nan=0.0))))
+
+    def significativas(self) -> List[int]:
+        return [
+            i
+            for i in self.ordem()
+            if abs(float(self.significancia[i])) >= self.limiar
+        ]
+
+    def as_records(self) -> List[Dict[str, float]]:
+        return [
+            {
+                "variavel": self.labels[i],
+                "significancia": float(self.significancia[i]),
+                "mediana_no_cenario": float(self.mediana_subconjunto[i]),
+                "mediana_geral": float(self.mediana_geral[i]),
+                "significativa": bool(
+                    abs(float(self.significancia[i])) >= self.limiar
+                ),
+            }
+            for i in range(len(self.names))
+        ]
+
+
+def scenario_significance(
+    result: SimulationResult,
+    alvo: Callable[[np.ndarray], np.ndarray] | None = None,
+    percentil: float | None = None,
+    cauda: str = "superior",
+    nome: str = "cenario",
+    limiar: float = LIMIAR_SIGNIFICANCIA,
+    n_minimo: int = 100,
+) -> SignificanciaCenario:
+    """Quais entradas levam a saida ate o cenario alvo.
+
+    O alvo pode vir de duas formas, e exatamente uma delas deve ser usada:
+
+    - `alvo`: funcao que recebe o vetor da saida e devolve mascara booleana.
+      Total liberdade ("saida negativa", "saida entre 10 e 20").
+    - `percentil` + `cauda`: recorta a cauda superior (saida acima do
+      percentil) ou inferior. E o caso comum e evita escrever a lambda.
+
+    O desvio-padrao no denominador e o da entrada na amostra INTEIRA, nao no
+    subconjunto. Usar o desvio do subconjunto tornaria a medida circular:
+    condicionar estreita a distribuicao da entrada, entao o denominador
+    encolheria justamente para as entradas mais influentes, inflando a
+    significancia delas.
+    """
+    if (alvo is None) == (percentil is None):
+        raise ValueError("informe exatamente um entre `alvo` e `percentil`")
+
+    y = np.asarray(result.output, dtype=float)
+    X = np.asarray(result.inputs, dtype=float)
+    finito = np.isfinite(y) & np.all(np.isfinite(X), axis=1)
+
+    avisos: List[str] = []
+    if not finito.all():
+        avisos.append(
+            f"{int((~finito).sum())} iteracoes descartadas por conterem valores "
+            f"nao finitos."
+        )
+    y_ok, X_ok = y[finito], X[finito]
+    n_total = y_ok.shape[0]
+    if n_total == 0:
+        raise ValueError("nenhuma iteracao finita para analisar")
+
+    if percentil is not None:
+        if not 0.0 < percentil < 100.0:
+            raise ValueError(f"percentil deve estar em (0, 100), recebido {percentil}")
+        corte = float(np.percentile(y_ok, percentil))
+        if cauda == "superior":
+            mascara = y_ok > corte
+            nome = f"{nome}: saida acima do P{percentil:g}"
+        elif cauda == "inferior":
+            mascara = y_ok < corte
+            nome = f"{nome}: saida abaixo do P{percentil:g}"
+        else:
+            raise ValueError("cauda deve ser 'superior' ou 'inferior'")
+    else:
+        mascara = np.asarray(alvo(y_ok), dtype=bool)
+        if mascara.shape != y_ok.shape:
+            raise ValueError(
+                f"a mascara do alvo tem forma {mascara.shape}, esperado "
+                f"{y_ok.shape}"
+            )
+
+    n = int(mascara.sum())
+    fracao = n / n_total
+    k = X_ok.shape[1]
+    if n == 0:
+        avisos.append(
+            "Nenhuma iteracao atingiu o cenario. Ou o alvo e impossivel no "
+            "modelo, ou e raro demais para esta quantidade de iteracoes."
+        )
+        vazio = np.full(k, np.nan)
+        return SignificanciaCenario(
+            nome=nome, n=0, fracao=0.0, names=list(result.names),
+            labels=list(result.labels), significancia=vazio,
+            mediana_subconjunto=vazio, mediana_geral=vazio, desvio=vazio,
+            limiar=limiar, avisos=avisos,
+        )
+    if n < n_minimo:
+        avisos.append(
+            f"So {n} iteracoes atingiram o cenario ({fracao:.2%}). Abaixo de "
+            f"{n_minimo} a mediana do subconjunto e instavel e o limiar de "
+            f"{limiar:g} passa a ser cruzado por ruido de amostragem. Rode com "
+            f"mais iteracoes antes de agir sobre este ranking."
+        )
+
+    mediana_geral = np.median(X_ok, axis=0)
+    mediana_sub = np.median(X_ok[mascara], axis=0)
+    desvio = X_ok.std(axis=0, ddof=1)
+
+    significancia = np.full(k, np.nan)
+    vivos = desvio > 0
+    significancia[vivos] = (mediana_sub[vivos] - mediana_geral[vivos]) / desvio[vivos]
+    significancia[~vivos] = 0.0
+    if not vivos.all():
+        avisos.append(
+            "Variaveis constantes na amostra (significancia 0 por construcao): "
+            + ", ".join(result.labels[j] for j in np.flatnonzero(~vivos))
+        )
+
+    return SignificanciaCenario(
+        nome=nome,
+        n=n,
+        fracao=fracao,
+        names=list(result.names),
+        labels=list(result.labels),
+        significancia=significancia,
+        mediana_subconjunto=mediana_sub,
+        mediana_geral=mediana_geral,
+        desvio=desvio,
+        limiar=limiar,
+        avisos=avisos,
+    )
