@@ -206,3 +206,136 @@ def convergence_path(x: np.ndarray, points: int = 200) -> tuple[np.ndarray, np.n
     running = np.cumsum(x) / np.arange(1, n + 1)
     idx = np.unique(np.linspace(1, n, min(points, n)).astype(int)) - 1
     return idx + 1, running[idx]
+
+
+# ===========================================================================
+# Medidas de dispersao e forma que a media e o desvio nao capturam
+# ===========================================================================
+
+
+def mean_absolute_deviation(x: np.ndarray) -> float:
+    """Media dos desvios absolutos em torno da media.
+
+    Alternativa ao desvio-padrao que NAO eleva ao quadrado, e por isso da
+    muito menos peso aos extremos. Em distribuicoes de cauda pesada as duas
+    medidas contam historias diferentes, e a diferenca entre elas ja e um
+    diagnostico: quanto maior a razao desvio/MAD, mais a dispersao esta
+    concentrada em poucas observacoes extremas.
+    """
+    x = np.asarray(x, dtype=float)
+    x = x[np.isfinite(x)]
+    if x.size == 0:
+        return float("nan")
+    return float(np.mean(np.abs(x - x.mean())))
+
+
+def semi_variance(x: np.ndarray, threshold: float | None = None) -> float:
+    """Variancia calculada so sobre os valores ABAIXO do limiar.
+
+    Risco de queda ("downside risk"). O desvio-padrao comum trata surpresa
+    boa e surpresa ruim como equivalentes, o que raramente corresponde a
+    preferencia de quem decide: ninguem se protege contra lucro inesperado.
+
+    O limiar padrao e a media da amostra. Passar outro valor permite medir a
+    dispersao abaixo de uma meta (um retorno minimo aceitavel, um orcamento).
+
+    Denominador: n de TODA a amostra, nao o numero de observacoes abaixo do
+    limiar. E a convencao usual em financas, e a razao e comparabilidade -
+    com denominador variavel, uma distribuicao com poucas observacoes ruins
+    mas muito ruins pareceria mais arriscada que outra com muitas.
+    """
+    x = np.asarray(x, dtype=float)
+    x = x[np.isfinite(x)]
+    if x.size < 2:
+        return float("nan")
+    alvo = float(np.mean(x)) if threshold is None else float(threshold)
+    desvios = np.minimum(x - alvo, 0.0)
+    return float(np.sum(desvios**2) / (x.size - 1))
+
+
+def semi_std(x: np.ndarray, threshold: float | None = None) -> float:
+    """Raiz da semi-variancia, na mesma unidade da saida."""
+    sv = semi_variance(x, threshold)
+    return float(np.sqrt(sv)) if np.isfinite(sv) else float("nan")
+
+
+def value_range(x: np.ndarray) -> float:
+    """Maximo menos minimo.
+
+    Estatistica instavel por construcao: cresce indefinidamente com o numero
+    de iteracoes em distribuicoes ilimitadas, e e viesada para baixo mesmo nas
+    limitadas. Existe porque e pedida com frequencia, nao porque seja boa
+    medida de dispersao - para isso, use o intervalo interpercentil.
+    """
+    x = np.asarray(x, dtype=float)
+    x = x[np.isfinite(x)]
+    if x.size == 0:
+        return float("nan")
+    return float(x.max() - x.min())
+
+
+def mode(x: np.ndarray, bins: int | str = "auto") -> float:
+    """Moda amostral.
+
+    Para dados discretos, o valor mais frequente. Para dados continuos, o
+    centro do intervalo mais povoado de um histograma - o que torna a moda
+    dependente do numero de intervalos e, portanto, a MENOS estavel das tres
+    medidas de tendencia central. Reportada porque e pedida, com esta
+    ressalva anexada.
+
+    A deteccao de "discreto" e pratica, nao teorica: poucos valores distintos
+    em relacao ao tamanho da amostra.
+    """
+    x = np.asarray(x, dtype=float)
+    x = x[np.isfinite(x)]
+    if x.size == 0:
+        return float("nan")
+    unicos, contagens = np.unique(x, return_counts=True)
+    if unicos.size <= max(2, min(50, x.size // 20)):
+        return float(unicos[int(np.argmax(contagens))])
+    freq, bordas = np.histogram(x, bins=bins)
+    j = int(np.argmax(freq))
+    return float((bordas[j] + bordas[j + 1]) / 2.0)
+
+
+def kurtosis_pearson(x: np.ndarray) -> float:
+    """Curtose na convencao de Pearson: 3 para a normal, nao 0.
+
+    Existem duas convencoes em uso e elas diferem por exatamente 3. O resto
+    deste pacote reporta a de EXCESSO (normal = 0), que e o padrao do SciPy e
+    do NumPy; o @RISK reporta esta. Ter as duas nomeadas evita o erro de
+    comparar um numero desta ferramenta com um de outra sem notar o
+    deslocamento - que faz uma distribuicao normal parecer ter cauda pesada.
+    """
+    x = np.asarray(x, dtype=float)
+    x = x[np.isfinite(x)]
+    if x.size < 4:
+        return float("nan")
+    # bias=True para casar com `describe`, que usa o padrao do SciPy. As duas
+    # convencoes precisam diferir por EXATAMENTE 3, que e a unica razao de esta
+    # funcao existir; misturar o estimador viesado com o nao viesado faria a
+    # diferenca ser 3,00006 e destruiria o proposito.
+    return float(stats.kurtosis(x, fisher=False, bias=True))
+
+
+def target_probability(x: np.ndarray, target: float) -> float:
+    """P(X <= alvo). Nomenclatura X->P: do valor para a probabilidade."""
+    return prob_below(x, target)
+
+
+def percentile_descending(x: np.ndarray, q: float) -> float:
+    """Percentil na convencao DESCENDENTE: q% da probabilidade ACIMA do valor.
+
+    Parte da literatura de risco - e parte das ferramentas comerciais - usa a
+    convencao oposta a do `numpy.percentile`. "P5" pode significar tanto o
+    valor com 5% abaixo quanto o valor com 5% acima, e os dois numeros sao
+    muito diferentes numa cauda. A funcao existe para tornar a escolha
+    explicita no codigo em vez de implicita na cabeca de quem le.
+    """
+    if not 0.0 <= q <= 100.0:
+        raise ValueError(f"percentil deve estar em [0, 100], recebido {q}")
+    x = np.asarray(x, dtype=float)
+    x = x[np.isfinite(x)]
+    if x.size == 0:
+        return float("nan")
+    return float(np.percentile(x, 100.0 - q))
