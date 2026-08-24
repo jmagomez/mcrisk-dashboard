@@ -273,8 +273,20 @@ def achieved_spearman(X: np.ndarray) -> np.ndarray:
 def correlation_error(
     X: np.ndarray, target: np.ndarray
 ) -> Tuple[float, float, np.ndarray]:
-    """(erro maximo absoluto, erro medio absoluto, matriz de diferencas)."""
+    """(erro maximo absoluto, erro medio absoluto, matriz de diferencas).
+
+    A checagem de forma existe porque o broadcast do NumPy NAO falharia: ele
+    inventaria uma matriz de diferencas com forma propria, e o "erro maximo"
+    devolvido nao corresponderia a comparacao nenhuma.
+    """
     got = achieved_spearman(X)
-    diff = got - np.asarray(target, dtype=float)
+    tgt = np.asarray(target, dtype=float)
+    if got.shape != tgt.shape:
+        raise ValueError(
+            f"correlacao obtida {got.shape} nao bate com a alvo {tgt.shape}"
+        )
+    diff = got - tgt
     off = ~np.eye(diff.shape[0], dtype=bool)
+    if not off.any():  # k = 1: nao ha par para comparar
+        return 0.0, 0.0, diff
     return float(np.abs(diff[off]).max()), float(np.abs(diff[off]).mean()), diff
