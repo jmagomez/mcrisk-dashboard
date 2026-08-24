@@ -50,11 +50,14 @@ interface, e a aba fica travada durante o cálculo.
 | Distribuições | 21 no registro (Normal, Lognormal em 2 parametrizações, Triangular, PERT, Uniforme, Beta, Gama, Exponencial, Weibull, t de Student, Logística, Gumbel, Pareto, GPD, Bernoulli, Binomial, Poisson, Binomial Negativa, Geométrica, Uniforme Discreta) + discreta customizada e reamostragem empírica |
 | Amostragem | Monte Carlo simples e Latin Hypercube (McKay et al., 1979) |
 | Correlação | Iman-Conover (1982) com correção arcsin; reparo de matriz não-PSD por Higham (2002) |
-| Dependência de cauda | Cópulas Gaussiana e t de Student, como alternativa ao Iman-Conover — só a t produz extremos simultâneos |
-| Cenários | Condicional (recorta a amostra existente) e estresse (re-simula com outra distribuição de entrada) |
+| Dependência de cauda | Cinco cópulas: Gaussiana (λ = 0), t de Student (λ > 0 nas duas caudas), Clayton (só a inferior), Gumbel (só a superior), Frank (nenhuma). Ajuste de cópula a dados por pseudo-verossimilhança |
+| Sensibilidade | Quatro métodos: correlação de posto, SRRC, mudança na estatística da saída (o único que enxerga relação não monótona) e contribuição para a variância por soma de quadrados sequencial |
+| Cenários | Condicional (recorta a amostra existente), estresse (re-simula com outra distribuição de entrada) e significância — quais **entradas** levam ao cenário |
+| Convergência | Critério com tolerância relativa e nível de confiança declarados, por estatística, com projeção de iterações |
+| Incerteza do ajuste | Propagação da incerteza de parâmetro por bootstrap e combinação de candidatas por peso de Akaike |
 | Fórmula de saída | Expressão livre, avaliada por *parsing* AST com lista branca — **sem `eval` cru** |
-| Estatísticas | Percentis com IC não paramétrico, VaR, CVaR, P(X≤t), erro de simulação |
-| Sensibilidade | Correlação de posto e SRRC, gráfico tornado, com R² e VIF reportados |
+| Estatísticas | Percentis com IC não paramétrico (ascendentes ou descendentes), VaR, CVaR, P(X≤t), semi-variância, desvio absoluto médio, as duas convenções de curtose, erro de simulação |
+| Gráficos | Histograma, CDF, tornado, spider, dispersão, tendência, box plot e sobreposição com binning comum |
 | Ajuste a dados | MLE, AIC/AICc/BIC, pesos de Akaike, K-S e Anderson-Darling com **p-valor por bootstrap paramétrico** |
 | Exportação | CSV das iterações, relatório Excel, especificação JSON reprodutível |
 
@@ -194,16 +197,16 @@ está fechada — ver abaixo.
 ### Motor e interface Streamlit — `pytest`
 
 ```bash
-pytest -q            # 425 casos, a partir de 250 funções de teste
+pytest -q            # 544 casos, a partir de 336 funções de teste
 ```
 
-As duas contagens respondem a perguntas diferentes: **250** é quanto código de
-teste existe para ler e manter; **425** é quantas situações são efetivamente
+As duas contagens respondem a perguntas diferentes: **336** é quanto código de
+teste existe para ler e manter; **544** é quantas situações são efetivamente
 verificadas, porque `@pytest.mark.parametrize` multiplica uma função em vários
 casos. Dois casos ficam fora da execução padrão por serem marcados `slow`
 (1M de iterações e Iman-Conover 500k × 6); rode-os com `pytest -m slow`.
 
-**347 de motor** — momentos teóricos vs. amostrais das 21 distribuições,
+**448 de motor** — momentos teóricos vs. amostrais das 21 distribuições,
 monotonicidade das ppf, preservação exata das marginais sob Iman-Conover,
 recuperação da correlação alvo, dependência de cauda das cópulas conferida
 contra a fórmula fechada, ganho de variância do LHS, ausência de viés,
@@ -212,7 +215,7 @@ ajuste, calibração dos testes de aderência, parâmetros degenerados e matrize
 impossíveis, forma do crescimento do custo, e 15 vetores de ataque contra o
 avaliador de fórmulas.
 
-**52 de interface** (`tests/test_ui.py`) — dirigem o app de ponta a ponta com
+**70 de interface** (`tests/test_ui.py`) — dirigem o app de ponta a ponta com
 `streamlit.testing.v1.AppTest` e conferem os números exibidos na tela contra a
 solução analítica.
 
@@ -245,16 +248,19 @@ mcrisk/
   distributions.py   registro de distribuições, ppf, momentos teóricos
   sampling.py        Monte Carlo e Latin Hypercube
   correlation.py     Iman-Conover, espelhamento, reparo PSD
-  copula.py          cópulas Gaussiana e t, dependência de cauda
-  scenarios.py       cenários condicionais e de estresse
+  copula.py          cinco cópulas, dependência de cauda, ajuste a dados
+  scenarios.py       cenários condicionais, de estresse e significância
+  convergence.py     critério de parada com tolerância e confiança
   formula.py         avaliador seguro de fórmulas (AST + lista branca)
   engine.py          orquestração da simulação
   summary.py         estatísticas de saída e erro de simulação
   sensitivity.py     índices de sensibilidade e tornado
   fitting.py         MLE, AIC/BIC, K-S e A-D com bootstrap
 app.py               interface Streamlit (completa)
+charts.py            figuras do dashboard (fora do pacote: o motor não depende de Plotly)
+tools/benchmark.py   gera todos os números do BENCHMARK.md
 index.html           interface de navegador (Pyodide), publicada no GitHub Pages
-tests/               425 casos de motor e da interface Streamlit
+tests/               544 casos de motor e da interface Streamlit
 tests-e2e/           13 testes de navegador (Playwright)
 ```
 
@@ -267,7 +273,10 @@ modos de falha conhecidos e — mais importante — por que a maior fonte de err
 em análise de risco quantitativa não está no código, e sim nas premissas que
 você fornece.
 
-A metodologia completa está em **[METHODOLOGY.md](METHODOLOGY.md)**.
+A metodologia completa está em **[METHODOLOGY.md](METHODOLOGY.md)**, e as
+medições de qualidade, velocidade e confiabilidade em
+**[BENCHMARK.md](BENCHMARK.md)** — todas reprodutíveis com
+`python tools/benchmark.py`.
 
 ---
 
