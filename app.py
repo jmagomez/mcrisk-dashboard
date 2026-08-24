@@ -17,6 +17,8 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+import charts
+from mcrisk import convergence as conv_mod
 from mcrisk import copula as copula_mod
 from mcrisk import correlation as corr_mod
 from mcrisk import scenarios as scen_mod
@@ -161,6 +163,8 @@ st.session_state.setdefault("usar_corr", False)
 st.session_state.setdefault("resultado", None)
 st.session_state.setdefault("replicas", None)
 st.session_state.setdefault("ajuste", None)
+st.session_state.setdefault("incerteza", None)
+st.session_state.setdefault("ver_media_modelos", False)
 st.session_state.setdefault("next_id", 1)
 
 
@@ -527,12 +531,15 @@ with aba_corr:
             "iman_conover": "Iman-Conover (posto) — padrao",
             "gaussian": "Copula Gaussiana",
             "t": "Copula t de Student",
+            "clayton": "Copula Clayton (cauda inferior)",
+            "gumbel": "Copula Gumbel (cauda superior)",
+            "frank": "Copula Frank (sem cauda)",
         }
         dep = st.radio(
             "Esquema",
             list(esquemas),
             format_func=lambda k: esquemas[k],
-            horizontal=True,
+            horizontal=False,
             disabled=not st.session_state["usar_corr"],
             key="dependence",
             help=(
@@ -568,6 +575,47 @@ with aba_corr:
                 "independentes — foi a critica central a modelagem de credito "
                 "estruturado antes de 2008."
             )
+        elif dep in copula_mod.ARQUIMEDIANAS:
+            rho_medio = copula_mod.rho_medio_fora_da_diagonal(C)
+            dispersao = copula_mod.dispersao_fora_da_diagonal(C)
+            if rho_medio <= 0:
+                st.error(
+                    f"As copulas arquimedianas deste app so representam "
+                    f"dependencia POSITIVA, e o rho medio da sua matriz e "
+                    f"{rho_medio:.3f}. Use Gaussiana ou t.",
+                    icon="\U0001F6AB",
+                )
+            else:
+                try:
+                    theta = copula_mod.theta_from_spearman(dep, rho_medio)
+                except ValueError as exc:
+                    st.error(str(exc), icon="\U0001F6AB")
+                else:
+                    lam_inf, lam_sup = copula_mod.tail_dependence_archimedean(
+                        dep, theta
+                    )
+                    tau = copula_mod.tau_from_theta(dep, theta)
+                    m1, m2, m3 = st.columns(3)
+                    m1.metric("theta calibrado", f"{theta:.4g}")
+                    m2.metric("lambda inferior", f"{lam_inf:.4f}")
+                    m3.metric("lambda superior", f"{lam_sup:.4f}")
+                    st.caption(
+                        f"Calibrado a partir do rho medio {rho_medio:.4f} "
+                        f"(tau de Kendall = {tau:.4f}). Ao contrario da t, que "
+                        f"e radialmente simetrica, estas familias colocam a "
+                        f"dependencia em UM lado so — e o lado e a escolha "
+                        f"que voce esta fazendo aqui."
+                    )
+                    if dispersao > 1e-9:
+                        st.warning(
+                            f"Esta familia e PERMUTAVEL: um unico parametro "
+                            f"governa todos os pares. Seus rho variam em "
+                            f"{dispersao:.3f} entre os pares, e essa "
+                            f"heterogeneidade sera DESCARTADA — todos os pares "
+                            f"receberao {rho_medio:.4f}. Se a diferenca entre os "
+                            f"pares importa, use Gaussiana ou t.",
+                            icon="⚠️",
+                        )
 
 
 # ===========================================================================
@@ -699,6 +747,43 @@ with aba_result:
         c[3].metric("Curtose (excesso)", fmt(d["curtose_excesso"], 3))
         c[4].metric("Coef. de variacao", fmt(d["coef_variacao"], 3))
 
+        with st.expander("Medidas menos comuns (dispersao assimetrica, moda, convencoes)"):
+            e1, e2, e3 = st.columns(3)
+            e1.metric("Moda", fmt(summary.mode(y)))
+            e1.caption("A menos estavel das tres medidas centrais: depende do binning.")
+            e2.metric("Desvio absoluto medio", fmt(summary.mean_absolute_deviation(y)))
+            e2.caption("Nao eleva ao quadrado: da muito menos peso aos extremos.")
+            e3.metric("Amplitude", fmt(summary.value_range(y)))
+            e3.caption("Cresce com o numero de iteracoes; nao use para comparar.")
+            f1, f2, f3 = st.columns(3)
+            f1.metric("Semi-desvio (abaixo da media)", fmt(summary.semi_std(y)))
+            f2.metric("Semi-variancia", fmt(summary.semi_variance(y)))
+            f3.metric("Curtose (Pearson, normal = 3)", fmt(summary.kurtosis_pearson(y), 3))
+            razao = (
+                d["desvio"] / summary.mean_absolute_deviation(y)
+                if summary.mean_absolute_deviation(y) > 0
+                else float("nan")
+            )
+            st.caption(
+                f"**Razao desvio/DAM = {fmt(razao, 3)}.** Para a normal ela vale "
+                f"{np.sqrt(np.pi / 2):.4f}. Quanto mais acima disso, mais a "
+                f"dispersao esta concentrada em poucas observacoes extremas — o "
+                f"que e diagnostico de cauda pesada, e um aviso de que a media "
+                f"e o desvio descrevem mal esta saida."
+            )
+            st.caption(
+                "**Semi-desvio** mede so a dispersao ABAIXO da media. O desvio "
+                "comum trata surpresa boa e ruim como equivalentes, o que quase "
+                "nunca corresponde a preferencia de quem decide."
+            )
+            st.caption(
+                "**Duas convencoes de curtose** existem e diferem por exatamente "
+                "3. O resto deste app reporta a de excesso (normal = 0); a linha "
+                "acima traz a de Pearson (normal = 3), que e a usada pelo @RISK. "
+                "Comparar um numero com o outro faz uma normal parecer ter cauda "
+                "pesada."
+            )
+
         if abs(d["assimetria"]) > 0.5:
             st.warning(
                 f"A saida e assimetrica (assimetria = {d['assimetria']:.2f}). "
@@ -818,13 +903,25 @@ with aba_result:
         p1, p2 = st.columns([3, 2])
         with p1:
             st.markdown("**Percentis com intervalo de confianca de 95%**")
+            desc = st.toggle(
+                "Convencao descendente (P5 = 5% da probabilidade ACIMA)",
+                value=False,
+                key="pct_desc",
+                help=(
+                    "Parte da literatura de risco usa a convencao oposta a do "
+                    "NumPy. 'P5' pode significar o valor com 5% abaixo ou o "
+                    "valor com 5% acima, e os dois numeros sao muito diferentes "
+                    "numa cauda."
+                ),
+            )
             linhas = []
             for p in summary.DEFAULT_PERCENTILES:
-                lo, hi = summary.quantile_ci(yf, p / 100.0)
+                q = (100 - p) if desc else p
+                lo, hi = summary.quantile_ci(yf, q / 100.0)
                 linhas.append(
                     {
-                        "percentil": f"P{p}",
-                        "valor": d[f"P{p}"],
+                        "percentil": f"P{p}" + ("↓" if desc else ""),
+                        "valor": float(np.percentile(yf, q)),
                         "IC inf": lo,
                         "IC sup": hi,
                     }
@@ -835,6 +932,12 @@ with aba_result:
             st.caption(
                 "IC nao parametrico via estatisticas de ordem (metodo binomial). "
                 "Assume iteracoes independentes."
+                + (
+                    "  \nNa convencao **descendente**, P5 e o valor superado por "
+                    "apenas 5% das iteracoes."
+                    if desc
+                    else ""
+                )
             )
 
         with p2:
@@ -896,48 +999,129 @@ with aba_result:
         for w in sres.warnings:
             st.warning(w, icon="⚠️")
 
-        criterio = st.radio(
-            "Ordenar por",
-            ["srrc", "spearman"],
-            format_func=lambda x: {
-                "srrc": "Coef. de regressao de posto padronizado (controla as demais)",
-                "spearman": "Correlacao de posto (marginal)",
-            }[x],
-            horizontal=True,
-        )
-        ordem = sensitivity.tornado_order(sres, by=criterio)
-        vals = (sres.srrc if criterio == "srrc" else sres.spearman)[ordem]
-        labs = [sres.names[i] for i in ordem]
-
-        figt = go.Figure(
-            go.Bar(
-                x=vals[::-1],
-                y=labs[::-1],
-                orientation="h",
-                marker_color=[
-                    COR["alerta"] if x < 0 else COR["principal"] for x in vals[::-1]
-                ],
-            )
-        )
-        figt.update_layout(
-            height=max(240, 44 * len(labs)),
-            margin=dict(l=0, r=0, t=30, b=0),
-            title="Grafico tornado",
-            xaxis_title=criterio.upper(),
-        )
-        st.plotly_chart(figt, width="stretch")
-
-        st.dataframe(
-            pd.DataFrame(sres.as_records()).iloc[ordem],
-            hide_index=True,
-            width="stretch",
-        )
         st.caption(
-            f"R² da regressao de postos = {fmt(sres.rank_r2, 3)}. É a fracao do "
-            f"comportamento do modelo que indices monotonos conseguem explicar. "
-            f"A coluna de contribuicao para a variancia (SRRC²) so faz sentido "
-            f"com R² alto e entradas pouco correlacionadas entre si."
+            "Quatro metodos, quatro perguntas diferentes. Nao existe o "
+            "\"melhor\": eles discordam quando o modelo tem estrutura que um "
+            "deles nao enxerga, e a DISCORDANCIA e o achado."
         )
+        criterio = st.radio(
+            "Metodo",
+            ["srrc", "spearman", "condicional", "variancia"],
+            format_func=lambda x: {
+                "srrc": "Regressao de posto (SRRC) — controla as demais entradas",
+                "spearman": "Correlacao de posto — marginal",
+                "condicional": "Mudanca na estatistica da saida — nao supoe monotonia",
+                "variancia": "Contribuicao para a variancia — soma de quadrados sequencial",
+            }[x],
+            horizontal=False,
+            key="sens_metodo",
+        )
+
+        if criterio in ("srrc", "spearman"):
+            ordem = sensitivity.tornado_order(sres, by=criterio)
+            vals = (sres.srrc if criterio == "srrc" else sres.spearman)[ordem]
+            labs = [sres.names[i] for i in ordem]
+            st.plotly_chart(
+                charts.tornado(vals, labs, "Grafico tornado", criterio.upper()),
+                width="stretch",
+            )
+            st.dataframe(
+                pd.DataFrame(sres.as_records()).iloc[ordem],
+                hide_index=True,
+                width="stretch",
+            )
+            st.caption(
+                f"R² da regressao de postos = {fmt(sres.rank_r2, 3)}. É a fracao do "
+                f"comportamento do modelo que indices monotonos conseguem explicar. "
+                f"A coluna de contribuicao para a variancia (SRRC²) so faz sentido "
+                f"com R² alto e entradas pouco correlacionadas entre si."
+            )
+
+        elif criterio == "condicional":
+            cc1, cc2 = st.columns(2)
+            stat_cond = cc1.selectbox(
+                "Estatistica da saida", list(sensitivity.STATS_CONDICIONAIS),
+                key="sens_stat",
+            )
+            n_faixas = cc2.slider("Faixas", 4, 25, 10, key="sens_bins")
+            try:
+                cond = sensitivity.change_in_output_statistic(
+                    res.inputs, res.output, res.labels,
+                    stat=stat_cond, bins=int(n_faixas),
+                )
+            except ValueError as exc:
+                st.error(str(exc), icon="\U0001F6AB")
+            else:
+                for w in cond.warnings:
+                    st.warning(w, icon="⚠️")
+                oc = cond.ordem()
+                st.plotly_chart(
+                    charts.tornado(
+                        cond.swing[oc], [cond.names[i] for i in oc],
+                        f"Amplitude da {stat_cond} da saida por faixa da entrada",
+                        f"swing da {stat_cond}",
+                    ),
+                    width="stretch",
+                )
+                st.plotly_chart(
+                    charts.spider(
+                        cond.centros[oc], cond.valores[oc],
+                        [cond.names[i] for i in oc], cond.base, stat_cond,
+                    ),
+                    width="stretch",
+                )
+                st.dataframe(
+                    pd.DataFrame(cond.as_records()).iloc[oc],
+                    hide_index=True, width="stretch",
+                )
+                st.info(
+                    "Este e o unico dos quatro metodos que enxerga relacao NAO "
+                    "monotona. Uma entrada em U tem correlacao de posto e SRRC "
+                    "proximos de zero mesmo dominando o modelo; aqui ela aparece "
+                    "com swing alto e o spider mostra a curvatura. Em compensacao, "
+                    "e marginal: nao controla as demais entradas.",
+                    icon="ℹ️",
+                )
+
+        else:
+            usar_postos = st.checkbox(
+                "Regressao sobre os postos (capta relacao monotona nao linear)",
+                value=False, key="sens_postos",
+            )
+            try:
+                cv = sensitivity.contribution_to_variance(
+                    res.inputs, res.output, res.labels, use_ranks=usar_postos,
+                )
+            except ValueError as exc:
+                st.error(str(exc), icon="\U0001F6AB")
+            else:
+                for w in cv.warnings:
+                    st.warning(w, icon="⚠️")
+                ov = list(np.argsort(-cv.fracao))
+                st.plotly_chart(
+                    charts.tornado(
+                        cv.fracao[ov] * 100.0, [cv.names[i] for i in ov],
+                        "Contribuicao para a variancia da saida",
+                        "% da variancia",
+                    ),
+                    width="stretch",
+                )
+                st.dataframe(
+                    pd.DataFrame(cv.as_records()).iloc[ov],
+                    hide_index=True, width="stretch",
+                )
+                v1, v2 = st.columns(2)
+                v1.metric("Variancia explicada", f"{cv.r2_total:.1%}")
+                v2.metric("Nao explicada", f"{cv.nao_explicada:.1%}")
+                st.caption(
+                    "As fracoes somam a variancia EXPLICADA, nao 100%. A parte "
+                    "nao explicada e o que escapa de uma regressao linear "
+                    + ("nos postos" if cv.usa_postos else "nos valores")
+                    + " — e ela nao pertence a nenhuma entrada. A ordem da coluna "
+                    "'passo' e a ordem de entrada na regressao, e importa: com "
+                    "entradas correlacionadas, quem entra antes fica com a parte "
+                    "compartilhada."
+                )
 
         with st.expander("Dispersao entrada × saida"):
             escolha = st.selectbox("Variavel", res.labels)
@@ -998,7 +1182,7 @@ with aba_result:
             "distribuicao de entrada e re-simula: o resultado vale para aquele mundo "
             "hipotetico e nao tem a probabilidade do modelo original."
         )
-        _ta, _tb = st.tabs(["Condicional", "Estresse"])
+        _ta, _tb, _tc = st.tabs(["Condicional", "Estresse", "Quem leva ao cenario"])
 
         with _ta:
             var_c = st.selectbox("Variavel", res.names,
@@ -1059,6 +1243,195 @@ with aba_result:
                                    for k in ("media", "p05", "p50", "p95", "var_95", "cvar_95")
                                    if k in _sr.delta]
                         st.dataframe(pd.DataFrame(_linhas), width="stretch", hide_index=True)
+
+        with _tc:
+            st.caption(
+                "As duas abas anteriores perguntam o que acontece com a SAIDA. "
+                "Esta pergunta o contrario: quais ENTRADAS levaram ate la. O "
+                "criterio compara a mediana de cada entrada nas iteracoes que "
+                "atingiram o alvo com a mediana em todas as iteracoes, medindo a "
+                "diferenca em desvios-padrao."
+            )
+            sc1, sc2 = st.columns(2)
+            lado = sc1.radio(
+                "Cauda de interesse", ["superior", "inferior"],
+                format_func=lambda x: (
+                    "Saida ALTA (acima do percentil)" if x == "superior"
+                    else "Saida BAIXA (abaixo do percentil)"
+                ),
+                key="sig_cauda",
+            )
+            pct = sc2.slider("Percentil de corte", 1, 99, 90, key="sig_pct")
+            try:
+                sig = scen_mod.scenario_significance(
+                    res, percentil=float(pct), cauda=lado,
+                )
+            except ValueError as exc:
+                st.error(str(exc), icon="\U0001F6AB")
+            else:
+                for a_ in sig.avisos:
+                    st.warning(a_, icon="⚠️")
+                if sig.n:
+                    st.caption(
+                        f"{sig.n:,} de {res.n:,} iteracoes atingiram o cenario "
+                        f"({sig.fracao:.2%})."
+                    )
+                    osig = sig.ordem()
+                    st.plotly_chart(
+                        charts.tornado(
+                            sig.significancia[osig],
+                            [sig.labels[i] for i in osig],
+                            "Significancia para o cenario",
+                            "desvios-padrao de deslocamento da mediana",
+                            limiar=sig.limiar,
+                        ),
+                        width="stretch",
+                    )
+                    st.dataframe(
+                        pd.DataFrame(sig.as_records()).iloc[osig],
+                        hide_index=True, width="stretch",
+                    )
+                    st.caption(
+                        f"As barras cinzas ficam abaixo do limiar de "
+                        f"{sig.limiar:g} e sao consideradas insignificantes. O "
+                        f"limiar e CONVENCAO, nao teste de hipotese: nao ha "
+                        f"p-valor associado e ele nao se ajusta ao tamanho do "
+                        f"recorte. Com poucas iteracoes no cenario, ruido sozinho "
+                        f"cruza a linha."
+                    )
+
+        # ---------------- convergencia com criterio ----------------
+        st.markdown("---")
+        st.subheader("Ja rodei iteracoes suficientes?")
+        st.caption(
+            "O grafico de media acumulada, acima, responde \"parece ter "
+            "estabilizado?\". Aqui a pergunta e quantitativa: a estimativa ja "
+            "esta dentro de uma tolerancia declarada, com uma confianca "
+            "declarada?"
+        )
+        k1, k2, k3 = st.columns(3)
+        tol = k1.slider("Tolerancia relativa", 0.005, 0.10, 0.03, 0.005,
+                        format="%.3f", key="conv_tol")
+        conf = k2.select_slider(
+            "Nivel de confianca", options=[0.80, 0.90, 0.95, 0.99], value=0.95,
+            key="conv_conf",
+        )
+        alvos = k3.multiselect(
+            "Estatisticas", list(conv_mod.ESTATISTICAS), default=["media", "p95"],
+            key="conv_stats",
+        )
+        if not alvos:
+            st.info("Escolha ao menos uma estatistica para monitorar.")
+        else:
+            try:
+                rel = conv_mod.monitor(
+                    res.output, alvos, tolerancia=float(tol),
+                    confianca=float(conf), metodo_amostragem=res.spec.method,
+                )
+            except ValueError as exc:
+                st.error(str(exc), icon="\U0001F6AB")
+            else:
+                for a_ in rel.avisos:
+                    st.warning(a_, icon="⚠️")
+                st.dataframe(
+                    pd.DataFrame(rel.as_records()), hide_index=True,
+                    width="stretch",
+                )
+                if rel.tudo_convergiu:
+                    st.success(
+                        f"Todas as estatisticas monitoradas convergiram; a mais "
+                        f"lenta levou {rel.iteracoes_necessarias:,} iteracoes de "
+                        f"{rel.n_total:,}.",
+                        icon="✅",
+                    )
+                else:
+                    proj = conv_mod.iteracoes_para_tolerancia(
+                        res.output, float(tol), float(conf)
+                    )
+                    st.warning(
+                        "Nem tudo convergiu na tolerancia pedida."
+                        + (
+                            f" Projecao para a MEDIA (so para ela): cerca de "
+                            f"{proj:,.0f} iteracoes."
+                            if np.isfinite(proj) else ""
+                        ),
+                        icon="⚠️",
+                    )
+                escolhida = st.selectbox(
+                    "Detalhar", alvos, key="conv_detalhe",
+                )
+                tr = rel.trilha[escolhida]
+                st.plotly_chart(
+                    charts.convergencia(
+                        [e.n for e in tr], [e.valor for e in tr],
+                        [e.meia_largura for e in tr], float(tol),
+                        rel.convergiu_em[escolhida], escolhida,
+                    ),
+                    width="stretch",
+                )
+                st.caption(
+                    "Convergencia e sobre erro de AMOSTRAGEM, que e a menor das "
+                    "fontes de erro em analise de risco. Uma simulacao convergida "
+                    "com premissas erradas produz um numero errado com barra de "
+                    "erro estreita — e a barra estreita convida a confiar."
+                )
+
+        # ---------------- comparacao de distribuicoes ----------------
+        st.markdown("---")
+        st.subheader("Comparar distribuicoes")
+        st.caption(
+            "Sobreposicao, tendencia e box plot lado a lado. As series "
+            "disponiveis sao a saida, as entradas e — se voce tiver rodado "
+            "replicacoes — cada replica, o que torna visivel quanto do formato "
+            "e ruido de simulacao."
+        )
+        disponiveis: dict[str, np.ndarray] = {nome_saida: res.output}
+        for _j, _lab in enumerate(res.labels):
+            disponiveis[f"entrada: {_lab}"] = res.inputs[:, _j]
+        _reps = st.session_state.get("replicas")
+        if _reps:
+            for _i, _o in enumerate(_reps):
+                disponiveis[f"replica {_i + 1}"] = np.asarray(_o, dtype=float)
+        sel = st.multiselect(
+            "Series", list(disponiveis), default=[nome_saida], key="cmp_series",
+        )
+        if len(sel) < 1:
+            st.info("Escolha ao menos uma serie.")
+        else:
+            series = [disponiveis[s_] for s_ in sel]
+            tipo = st.radio(
+                "Visualizacao",
+                ["densidade", "acumulada", "tendencia", "box"],
+                horizontal=True, key="cmp_tipo",
+            )
+            try:
+                if tipo in ("densidade", "acumulada"):
+                    fig_cmp = charts.overlay(
+                        series, sel, cumulativa=(tipo == "acumulada"),
+                        titulo="Sobreposicao com binning comum",
+                    )
+                elif tipo == "tendencia":
+                    fig_cmp = charts.summary_trend(series, sel)
+                else:
+                    fig_cmp = charts.box_plot(series, sel)
+            except ValueError as exc:
+                st.info(str(exc))
+            else:
+                st.plotly_chart(fig_cmp, width="stretch")
+                if tipo == "densidade":
+                    st.caption(
+                        "As bordas dos intervalos sao calculadas sobre a UNIAO "
+                        "das series. Histogramas com intervalos proprios nao sao "
+                        "comparaveis: a mesma distribuicao com 40 e com 80 "
+                        "intervalos tem alturas diferentes."
+                    )
+                elif tipo == "box":
+                    st.caption(
+                        "Os bigodes vao ate P5 e P95, nao ate 1,5x o intervalo "
+                        "interquartil. A regra de 1,5x marcaria como atipica uma "
+                        "fracao enorme das iteracoes numa saida de cauda pesada — "
+                        "que e o caso normal em analise de risco."
+                    )
 
         st.subheader("Exportar")
         df = to_dataframe(res, output_name=nome_saida)
@@ -1345,6 +1718,165 @@ with aba_ajuste:
                     f"correspondencia antes de transcrever para a aba 1."
                 )
 
+                # ---------------- incerteza que o ajuste pontual descarta ----
+                st.markdown("---")
+                st.subheader("O que o ajuste pontual esconde")
+                st.caption(
+                    "Levar so os parametros vencedores para a aba 1 descarta duas "
+                    "fontes de incerteza, e as duas empurram o resultado na mesma "
+                    "direcao: para MENOS incerteza do que existe."
+                )
+                _ia, _ib = st.tabs(
+                    ["Incerteza de parametro", "Incerteza de modelo"]
+                )
+
+                with _ia:
+                    st.caption(
+                        "Os parametros vieram de uma amostra finita. Bootstrap "
+                        "nao parametrico: reamostra as observacoes com reposicao "
+                        "e reajusta em cada replica. Nao parametrico de proposito "
+                        "— o bootstrap parametrico simularia do proprio modelo "
+                        "ajustado e, se ele estiver errado, devolveria um "
+                        "intervalo estreito e igualmente errado."
+                    )
+                    _nb = st.select_slider(
+                        "Replicas de bootstrap", options=[50, 100, 200, 500],
+                        value=200, key="inc_reps",
+                    )
+                    if st.button("Estimar incerteza dos parametros",
+                                 key="btn_inc_param"):
+                        try:
+                            with st.spinner("Reamostrando e reajustando..."):
+                                _inc = fitting.parameter_uncertainty(
+                                    aj["dados"], r.dist_key, replicas=int(_nb),
+                                    rng=np.random.default_rng(seed),
+                                )
+                        except ValueError as exc:
+                            st.error(str(exc), icon="\U0001F6AB")
+                        else:
+                            st.session_state["incerteza"] = _inc
+                    _inc = st.session_state.get("incerteza")
+                    if _inc is not None and _inc.dist_key == r.dist_key:
+                        for _a in _inc.avisos:
+                            st.warning(_a, icon="⚠️")
+                        st.dataframe(
+                            pd.DataFrame(_inc.as_records()), hide_index=True,
+                            width="stretch",
+                        )
+                        _rng = np.random.default_rng(seed)
+                        _n_cmp = 60_000
+                        _pontual = fitting.FITTABLE[r.dist_key].rvs(
+                            *r.params, size=_n_cmp, random_state=_rng
+                        )
+                        _preditiva = fitting.simular_com_incerteza(
+                            _inc, _n_cmp, np.random.default_rng(seed + 1)
+                        )
+                        st.plotly_chart(
+                            charts.overlay(
+                                [_pontual, _preditiva],
+                                ["parametros pontuais", "com incerteza de parametro"],
+                                cumulativa=True,
+                                titulo="O efeito na cauda",
+                            ),
+                            width="stretch",
+                        )
+                        _lin = []
+                        for _q in (90, 95, 99, 99.9):
+                            _a1 = float(np.percentile(_pontual, _q))
+                            _a2 = float(np.percentile(_preditiva, _q))
+                            _lin.append({
+                                "percentil": f"P{_q:g}",
+                                "pontual": _a1,
+                                "com incerteza": _a2,
+                                "diferenca %": (
+                                    (_a2 - _a1) / abs(_a1) * 100.0 if _a1 else float("nan")
+                                ),
+                            })
+                        st.dataframe(pd.DataFrame(_lin), hide_index=True,
+                                     width="stretch")
+                        st.caption(
+                            "O efeito cresce com a raridade do percentil e "
+                            "encolhe com o tamanho da amostra — e proporcional a "
+                            "1/n na variancia. Com muitos dados a diferenca "
+                            "desaparece, e nesse caso ignorar a incerteza de "
+                            "parametro passa a ser defensavel."
+                        )
+
+                with _ib:
+                    if len(resultados) < 2:
+                        st.info(
+                            "E preciso mais de uma candidata ajustada para haver "
+                            "incerteza de modelo."
+                        )
+                    else:
+                        st.caption(
+                            "Quando os pesos de Akaike ficam repartidos, os dados "
+                            "nao escolheram. Rodar so com a vencedora apresenta "
+                            "como certa uma decisao que foi quase empate — e o "
+                            "desempate cai na cauda, que e onde ha menos "
+                            "observacoes para decidir."
+                        )
+                        _ver_ma = st.button(
+                            "Combinar as candidatas por peso de Akaike",
+                            key="btn_model_avg",
+                        )
+                        if _ver_ma:
+                            st.session_state["ver_media_modelos"] = True
+                        try:
+                            _ma = fitting.model_average(resultados)
+                        except ValueError as exc:
+                            st.error(str(exc), icon="\U0001F6AB")
+                            _ma_ok = False
+                        else:
+                            _ma_ok = True
+                            for _a in _ma.avisos:
+                                st.info(_a, icon="ℹ️")
+                            st.dataframe(
+                                pd.DataFrame(_ma.as_records()), hide_index=True,
+                                width="stretch",
+                            )
+                        if _ma_ok and st.session_state.get("ver_media_modelos"):
+                            _n_cmp = 60_000
+                            _so_vencedora = fitting.FITTABLE[
+                                resultados[0].dist_key
+                            ].rvs(*resultados[0].params, size=_n_cmp,
+                                  random_state=np.random.default_rng(seed))
+                            _mistura = fitting.simular_media_de_modelos(
+                                _ma, _n_cmp, np.random.default_rng(seed + 2)
+                            )
+                            st.plotly_chart(
+                                charts.overlay(
+                                    [_so_vencedora, _mistura],
+                                    ["so a vencedora", "media de modelos"],
+                                    cumulativa=True,
+                                    titulo="O efeito na cauda",
+                                ),
+                                width="stretch",
+                            )
+                            _lin = []
+                            for _q in (90, 95, 99, 99.9):
+                                _a1 = float(np.percentile(_so_vencedora, _q))
+                                _a2 = float(np.percentile(_mistura, _q))
+                                _lin.append({
+                                    "percentil": f"P{_q:g}",
+                                    "so a vencedora": _a1,
+                                    "media de modelos": _a2,
+                                    "diferenca %": (
+                                        (_a2 - _a1) / abs(_a1) * 100.0
+                                        if _a1 else float("nan")
+                                    ),
+                                })
+                            st.dataframe(pd.DataFrame(_lin), hide_index=True,
+                                         width="stretch")
+                            st.caption(
+                                "A mistura sorteia a FAMILIA a cada iteracao, "
+                                "ponderada pelos pesos de Akaike. Fazer a media "
+                                "dos quantis das candidatas seria diferente e "
+                                "errado: produziria uma curva que nao e a "
+                                "preditiva de nada e que tem cauda mais leve que "
+                                "a mais pesada das candidatas."
+                            )
+
 
 # ===========================================================================
 # Aba 6 - metodologia
@@ -1362,10 +1894,12 @@ with aba_metodo:
    coluna a coluna.
 3. **Dependencia** — se especificada, aplica Iman-Conover (reordena as
    colunas para atingir a correlacao de posto alvo preservando as marginais)
-   ou uma copula (Gaussiana ou t), escolhida na aba 2. So a copula t produz
-   eventos extremos simultaneos.
+   ou uma das cinco copulas, escolhida na aba 2. Iman-Conover e a Gaussiana
+   nao produzem eventos extremos simultaneos; a t produz em ambas as caudas;
+   Clayton so na inferior e Gumbel so na superior.
 4. **Avaliacao** — calcula a formula de saida de forma vetorizada.
-5. **Diagnostico** — estatisticas, erro de simulacao, sensibilidade.
+5. **Diagnostico** — estatisticas, erro de simulacao, sensibilidade por
+   quatro metodos, significancia de cenario e criterio de convergencia.
 
 ### Decisoes metodologicas que valem explicitar
 
@@ -1390,14 +1924,43 @@ with aba_metodo:
   dependentes. Por isso ha replicacoes independentes como opcao.
 - **Sem `eval` cru.** A formula e analisada com `ast` e restrita a uma lista
   branca de construcoes.
+- **Quatro metodos de sensibilidade, nao um.** Correlacao de posto e SRRC sao
+  cegos para relacao nao monotona: medido no repositorio com `y = a²`, ambos
+  devolvem **−0,0022** para a unica variavel que importa. O metodo condicional
+  (faixas equiprovaveis) devolve swing **3,23** contra **0,08** das
+  irrelevantes. A discordancia entre metodos e o achado, nao um defeito.
+- **Faixas equiprovaveis, nao de largura igual**, no metodo condicional.
+  Dividir por largura esvaziaria as faixas de cauda em qualquer entrada
+  assimetrica, e a estatistica ali seria ruido puro.
+- **Contribuicao para a variancia soma o R², nao 100%.** O que sobra nao
+  pertence a entrada nenhuma. Com `y = a·b`, medido: **99,98%** nao explicada.
+- **Calibracao das copulas arquimedianas por medicao.** Nao ha forma fechada
+  elementar ligando o rho de Spearman ao parametro dessas familias, e inventar
+  uma seria pior que nao ter. A grade e simulada com semente fixa e invertida
+  por interpolacao; o erro medido esta no `BENCHMARK.md` (ate 0,0077, contra
+  0,0025 da calibracao por tau de Kendall, que tem forma fechada).
+- **Bootstrap basico na incerteza de parametro.** Reamostrar as replicas do
+  MLE sem refletir ESTREITA a preditiva em vez de alargar, porque o vies para
+  baixo do estimador de escala cancela o alargamento da incerteza de locacao.
+  Medido para a normal com n=40: variancia **0,7970** crua contra **0,8043**
+  pontual e **0,8912** exata; com reflexao, **0,8720**.
 
 ### O que este app NAO faz
 
 Nao tem indices de Sobol, otimizacao sob incerteza, series temporais e
-processos estocasticos, ajuste bayesiano, nem integracao com Excel. As
-copulas disponiveis (Gaussiana e t) sao ESCOLHIDAS por voce, nao ajustadas
-aos dados: os graus de liberdade sao um parametro que voce informa, e nao ha
-teste de aderencia da estrutura de dependencia. Ver `LIMITATIONS.md`.
+processos estocasticos, nem integracao com Excel.
+
+Ha ajuste de copula a dados (`mcrisk.copula.fit_copula`, por
+pseudo-verossimilhanca), mas ele NAO esta ligado ao seletor da aba 2: a copula
+usada na simulacao continua sendo ESCOLHIDA por voce. Os graus de liberdade da
+t sao um parametro que voce informa, nao estimado. Das arquimedianas ha
+Clayton, Gumbel e Frank -- faltam as assimetricas de dois parametros, e as tres
+implementadas sao PERMUTAVEIS: um unico parametro para todos os pares. Uma
+matriz heterogenea e achatada no rho medio, com aviso na tela.
+
+A incerteza de parametro e propagada por bootstrap e as candidatas podem ser
+combinadas por peso de Akaike (aba 5), mas nao ha inferencia bayesiana
+propriamente dita: nao ha priori, posteriori nem MCMC. Ver `LIMITATIONS.md`.
 """
     )
 
@@ -1430,11 +1993,30 @@ teste de aderencia da estrutura de dependencia. Ver `LIMITATIONS.md`.
 - Schwarz, G. (1978). Annals of Statistics 6(2):461-464.
 - Burnham, K.P. & Anderson, D.R. (2002). *Model Selection and Multimodel
   Inference*, 2a ed., Springer.
+- Efron, B. & Tibshirani, R.J. (1993). *An Introduction to the Bootstrap*.
+  Chapman & Hall.
+- Hoeting, J.A. et al. (1999). *Bayesian Model Averaging: A Tutorial*.
+  Statistical Science 14(4):382-401.
 - Lilliefors, H.W. (1967). JASA 62(318):399-402.
 - Stephens, M.A. (1974). *EDF Statistics for Goodness of Fit and Some
   Comparisons*. JASA 69(347):730-737.
 - Babu, G.J. & Rao, C.R. (2004). *Goodness-of-fit tests when parameters are
   estimated*. Sankhya 66(1):63-74.
+
+**Copulas**
+
+- Sklar, A. (1959). *Fonctions de repartition a n dimensions et leurs marges*.
+  Publ. Inst. Statist. Univ. Paris 8:229-231.
+- Marshall, A.W. & Olkin, I. (1988). *Families of Multivariate Distributions*.
+  JASA 83(403):834-841. (amostragem por frailty das arquimedianas)
+- Genest, C. & Rivest, L.-P. (1993). *Statistical Inference Procedures for
+  Bivariate Archimedean Copulas*. JASA 88(423):1034-1043.
+- Demarta, S. & McNeil, A.J. (2005). *The t Copula and Related Copulas*.
+  International Statistical Review 73(1):111-129.
+- Nelsen, R.B. (2006). *An Introduction to Copulas*, 2a ed., Springer.
+- Joe, H. (2014). *Dependence Modeling with Copulas*. CRC Press.
+- McNeil, A.J., Frey, R. & Embrechts, P. (2015). *Quantitative Risk
+  Management*, ed. revisada, Princeton University Press.
 
 **Sensibilidade**
 
