@@ -87,6 +87,11 @@ class SimulationSpec:
     #                    produz. As marginais seguem exatas (transformada
     #                    inversa sobre o U da copula), mas a amostragem deixa de
     #                    ser LHS: o U vem da copula, nao do cubo estratificado.
+    #   "clayton"/"gumbel"/"frank" - copulas arquimedianas, com cauda ASSIMETRICA
+    #                    (Clayton embaixo, Gumbel em cima, Frank em lado nenhum).
+    #                    Sao PERMUTAVEIS: um unico parametro para todos os pares,
+    #                    entao uma matriz heterogenea e achatada no rho medio e o
+    #                    motor avisa quanto se perdeu.
     dependence: str = "iman_conover"
     copula_df: float = 5.0
 
@@ -105,7 +110,7 @@ class SimulationSpec:
             errs.append("numero de iteracoes deve ser >= 2")
         if self.method not in sampling.VALID_METHODS:
             errs.append(f"metodo de amostragem invalido: {self.method}")
-        if self.dependence not in ("iman_conover",) + copula_mod.VALID_COPULAS:
+        if self.dependence not in ("iman_conover",) + copula_mod.COPULAS_DISPONIVEIS:
             errs.append(f"esquema de dependencia invalido: {self.dependence}")
         if self.dependence == "t" and (
             not np.isfinite(self.copula_df) or self.copula_df < copula_mod.DF_MINIMO
@@ -157,7 +162,10 @@ def run(spec: SimulationSpec, strict: bool = True) -> SimulationResult:
     k, n = len(spec.variables), int(spec.iterations)
 
     # 1-2. amostragem e transformada inversa
-    usa_copula = spec.dependence in copula_mod.VALID_COPULAS and spec.correlation is not None
+    usa_copula = (
+        spec.dependence in copula_mod.COPULAS_DISPONIVEIS
+        and spec.correlation is not None
+    )
     if usa_copula and k > 1:
         U, reparado = copula_mod.copula_u(
             spec.dependence, np.asarray(spec.correlation, dtype=float), n, rng,
@@ -182,6 +190,29 @@ def run(spec: SimulationSpec, strict: bool = True) -> SimulationResult:
                 "Gaussiana. Para a t ha desvio de segunda ordem que cresce quando "
                 "os graus de liberdade caem."
             )
+        if spec.dependence in copula_mod.ARQUIMEDIANAS:
+            C_alvo = np.asarray(spec.correlation, dtype=float)
+            rho_medio = copula_mod.rho_medio_fora_da_diagonal(C_alvo)
+            theta = copula_mod.theta_from_spearman(spec.dependence, rho_medio)
+            lam_inf, lam_sup = copula_mod.tail_dependence_archimedean(
+                spec.dependence, theta
+            )
+            notes.append(
+                f"Copula {spec.dependence} calibrada em theta = {theta:.4g} a "
+                f"partir do rho medio {rho_medio:.4f}. Dependencia de cauda: "
+                f"inferior {lam_inf:.4f}, superior {lam_sup:.4f}."
+            )
+            dispersao = copula_mod.dispersao_fora_da_diagonal(C_alvo)
+            if dispersao > 1e-9:
+                notes.append(
+                    f"ATENCAO: as copulas arquimedianas sao PERMUTAVEIS -- um "
+                    f"unico parametro governa todos os pares. Sua matriz tem rho "
+                    f"variando em {dispersao:.3f} entre os pares, e essa "
+                    f"heterogeneidade foi DESCARTADA: todos os pares receberam o "
+                    f"rho medio {rho_medio:.4f}. Se a diferenca entre os pares "
+                    f"importa para o modelo, use gaussian ou t, que aceitam a "
+                    f"matriz inteira."
+                )
     else:
         U = sampling.unit_samples(n, k, method=spec.method, rng=rng)  # type: ignore[arg-type]
     X = np.empty((n, k), dtype=float)
@@ -234,7 +265,19 @@ def run(spec: SimulationSpec, strict: bool = True) -> SimulationResult:
             + ". Elas nao influenciam a saida e aparecerao com sensibilidade nula."
         )
 
-    notes.append(sampling.effective_iterations_note(spec.method))  # type: ignore[arg-type]
+    # Sob copula o cubo unitario NAO vem de `sampling`, entao a nota sobre o
+    # metodo escolhido descreveria um caminho que nao foi percorrido. Anunciar
+    # "Latin Hypercube" numa rodada que nao usou LHS e pior que nao anunciar
+    # nada: manda o leitor confiar numa propriedade que a amostra nao tem.
+    if not usa_copula:
+        notes.append(sampling.effective_iterations_note(spec.method))  # type: ignore[arg-type]
+    else:
+        notes.append(
+            "Como o cubo unitario veio da copula, as iteracoes sao "
+            "independentes entre si (Monte Carlo simples) e o erro padrao "
+            "s/sqrt(n) volta a ser valido -- ao custo de nao haver o ganho de "
+            "variancia do LHS."
+        )
 
     return SimulationResult(
         inputs=X, output=y, names=names, labels=labels, spec=spec, notes=notes
