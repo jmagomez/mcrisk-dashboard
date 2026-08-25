@@ -13,7 +13,8 @@ automatizado reprodutível com `pytest`.
               ↓
    ppf de cada marginal            [distributions.py]
               ↓
-   reordenação Iman-Conover        [correlation.py]   (opcional)
+   dependência: Iman-Conover       [correlation.py]   (opcional)
+   ou uma das cinco cópulas        [copula.py]
               ↓
    avaliação vetorizada da fórmula [formula.py]
               ↓
@@ -172,8 +173,10 @@ poder conferir, não confiar.
 Correlação de posto **não determina a distribuição conjunta**. A estrutura
 imposta é a induzida por escores normais — na prática próxima de uma cópula
 gaussiana, cuja **dependência de cauda é zero**. Quem precisa de extremos
-simultâneos deve escolher a cópula t na aba de correlação; o que ela resolve e
-o que ela **não** resolve está em `LIMITATIONS.md` §3.
+simultâneos escolhe uma cópula na aba de correlação: a **t** para cauda
+simétrica nos dois lados, **Clayton** para só a inferior, **Gumbel** para só a
+superior. O que elas resolvem e o que continua por conta do usuário está em
+`LIMITATIONS.md` §3, e o erro de calibração de cada uma no `BENCHMARK.md`.
 
 ---
 
@@ -233,8 +236,12 @@ variáveis.
 
 ## 6. Sensibilidade
 
-Dois índices, ambos calculados sobre a amostra já existente (sem avaliações
-adicionais do modelo):
+Quatro métodos, todos calculados sobre a amostra já existente (nenhum exige
+avaliações adicionais do modelo). Não existe o "melhor": eles respondem a
+perguntas diferentes e discordam quando o modelo tem estrutura que um deles
+não enxerga — e a discordância é o achado.
+
+Os dois primeiros são baseados em posto:
 
 1. **Correlação de posto (Spearman)** entre cada entrada e a saída. Índice
    *marginal*: ignora que as entradas possam estar correlacionadas entre si.
@@ -258,6 +265,28 @@ divergência é informação sobre a estrutura de dependência.
   construção.
 - **Variáveis constantes** na amostra são reportadas com sensibilidade 0 e
   listadas explicitamente, em vez de produzirem NaN silencioso.
+
+### Os outros dois métodos
+
+3. **Mudança na estatística da saída.** Ordena as iterações pelo valor da
+   entrada, divide em faixas **equiprováveis** (por contagem, não por largura —
+   dividir por largura esvaziaria as faixas de cauda em qualquer entrada
+   assimétrica) e mede a amplitude da estatística da saída entre as faixas.
+   Não supõe forma nenhuma, e é o **único dos quatro que enxerga relação não
+   monótona**. Medido no repositório com `y = a²`: Spearman e SRRC devolvem
+   −0,0022 para a única variável que importa; o swing condicional devolve
+   3,2344 contra 0,0811 das irrelevantes. Em troca é marginal — não controla
+   as demais entradas — e depende da escolha do número de faixas.
+
+4. **Contribuição para a variância**, por soma de quadrados **sequencial**.
+   Responde outra pergunta: que fração da variância da saída cada entrada
+   explica. Seleção para a frente; o incremento de R² de cada entrada é a
+   contribuição dela. Duas propriedades que o resultado carrega explicitamente,
+   porque são onde este método engana: as frações somam o **R² total**, não
+   1 — o que sobra não pertence a entrada nenhuma (com `y = a·b`, medido:
+   99,98% não explicada) — e, com entradas correlacionadas, quem entra antes
+   na regressão fica com a parte compartilhada, o que torna a atribuição
+   ambígua por construção. A ordem de entrada é reportada.
 
 **Referências:** Helton & Davis (2002); Saltelli & Sobol' (1995); Saltelli et
 al. (2008).
@@ -358,16 +387,16 @@ máquinas.
 
 ## 9. Cobertura de testes
 
-425 casos de teste, a partir de 250 funções, em três camadas.
+544 casos de teste, a partir de 336 funções, em três camadas.
 
-As duas contagens medem coisas diferentes e as duas são úteis: **250** é quanto
-código de teste existe para ler e manter; **425** é quantas situações são de
+As duas contagens medem coisas diferentes e as duas são úteis: **336** é quanto
+código de teste existe para ler e manter; **544** é quantas situações são de
 fato verificadas, porque `@pytest.mark.parametrize` multiplica uma função em
 vários casos — a varredura sobre as 21 distribuições, por exemplo, é uma função
 só e 21 casos. Dois casos ficam fora da execução padrão por serem marcados
 `slow`; rode-os com `pytest -m slow`.
 
-### Camada 1 — motor (347 casos)
+### Camada 1 — motor (448 casos)
 
 | Arquivo | O que garante |
 |---|---|
@@ -381,8 +410,9 @@ só e 21 casos. Dois casos ficam fora da execução padrão por serem marcados
 | `test_validacao_estatistica.py` | Testes de aderência das marginais geradas contra a distribuição alvo; calibração sob H₀; comparação de momentos de ordem alta |
 | `test_robustez.py` | Parâmetros degenerados recusados **com mensagem**; matrizes impossíveis detectadas e o reparo **anunciado**; fórmulas patológicas; dados malformados; varredura aleatória de 80 modelos |
 | `test_desempenho.py` | Forma do crescimento do custo em N e em k (não o tempo absoluto); memória da amostra; escala de 1M de iterações |
+| `test_metodos_risco.py` | Contribuição para a variância recupera a decomposição exata 90/10/0; o método condicional enxerga `y = a²` onde os de posto devolvem −0,002; significância de cenário troca de sinal com a cauda; projeção de convergência bate com a fórmula fechada; τ de Kendall das três arquimedianas; ajuste de cópula recupera a família geradora; preditiva com incerteza de parâmetro contra a solução bayesiana exata |
 
-### Camada 2 — interface (52 testes)
+### Camada 2 — interface (70 testes)
 
 `test_ui.py` dirige o aplicativo de ponta a ponta com
 `streamlit.testing.v1.AppTest`: clica em "Adicionar variável", preenche
@@ -450,8 +480,10 @@ principais:
 - Kruskal, W.H. (1958). *Ordinal Measures of Association*. JASA 53:814-861.
 - Lilliefors, H.W. (1967). JASA 62(318):399-402.
 - Malcolm, D.G. et al. (1959). *Application of a Technique for R&D Program Evaluation*. Operations Research 7(5):646-669.
+- Marshall, A.W. & Olkin, I. (1988). *Families of Multivariate Distributions*. JASA 83(403):834-841.
 - McKay, M.D., Beckman, R.J. & Conover, W.J. (1979). Technometrics 21(2):239-245.
 - McNeil, A.J., Frey, R. & Embrechts, P. (2015). *Quantitative Risk Management: Concepts, Techniques and Tools*, ed. revisada. Princeton University Press.
+- Nelsen, R.B. (2006). *An Introduction to Copulas*, 2ª ed. Springer.
 - Saltelli, A. & Sobol', I.M. (1995). Reliab. Eng. Syst. Saf. 50(3):225-239.
 - Saltelli, A. et al. (2008). *Global Sensitivity Analysis: The Primer*. Wiley.
 - Schwarz, G. (1978). Annals of Statistics 6(2):461-464.
