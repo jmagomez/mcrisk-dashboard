@@ -410,9 +410,13 @@
       </ul>
 
       <h3>O que este app NÃO faz</h3>
-      <p>Não tem índices de Sobol, cópulas além da estrutura de postos (portanto não modela
-        dependência de cauda), otimização sob incerteza, séries temporais ou processos
-        estocásticos, ajuste bayesiano, nem integração com Excel.
+      <p>Não tem índices de Sobol, otimização sob incerteza, séries temporais ou processos
+        estocásticos, nem integração com Excel. Também não expõe, <em>nesta tela</em>, três
+        recursos que o motor já tem: cópulas (Gaussiana, t, Clayton, Gumbel, Frank, com
+        dependência de cauda), análise de cenários e ajuste com média bayesiana de modelos.
+        Para esses, use a
+        <a href="https://github.com/jmagomez/mcrisk-dashboard#instalação-da-versão-completa"
+           target="_blank">versão Streamlit</a>.
         Leia <a href="https://github.com/jmagomez/mcrisk-dashboard/blob/main/LIMITATIONS.md" target="_blank">LIMITATIONS.md</a>
         — a maior fonte de erro em análise de risco não está no código, está nas premissas.</p>
 
@@ -458,8 +462,17 @@
 </footer>
 
 <script>
-const PY_ARQUIVOS = ["__init__.py","distributions.py","sampling.py","correlation.py",
-                     "formula.py","engine.py","summary.py","sensitivity.py","fitting.py"];
+// Todo modulo de mcrisk/ precisa estar aqui, mesmo os que esta tela nao chama
+// diretamente: `mcrisk/__init__.py` importa o pacote inteiro, entao um arquivo
+// ausente derruba a carga toda. Foi o que aconteceu quando `copula`,
+// `convergence` e `scenarios` entraram no pacote e esta lista nao acompanhou:
+// a tela morria com "cannot import name 'copula' ... circular import" — nao
+// havia importacao circular alguma, era um arquivo que nunca foi baixado.
+// `tests/test_manifesto_web.py` compara esta lista com o diretorio e falha se
+// divergirem, para o defeito nao voltar pela mesma porta.
+const PY_ARQUIVOS = ["__init__.py","convergence.py","copula.py","correlation.py",
+                     "distributions.py","engine.py","fitting.py","formula.py",
+                     "sampling.py","scenarios.py","sensitivity.py","summary.py"];
 
 const COLA = `
 import json
@@ -683,7 +696,12 @@ function fmt(x, casas = 4) {
 }
 
 function sanitizar(rotulo, i) {
-  let s = (rotulo || ("var" + i)).normalize("NFKD").replace(/[̀-ͯ]/g, "");
+  // Faixa \u0300-\u036f escrita com escapes de proposito: sao marcas combinantes,
+  // invisiveis no editor. Escritas literalmente, qualquer copia/colagem ou
+  // reencode do arquivo pode comer os dois caracteres sem deixar rastro, e o
+  // sanitizador passa a devolver rotulos com acento — que nao viram nome de
+  // variavel valido em Python.
+  let s = (rotulo || ("var" + i)).normalize("NFKD").replace(/[\u0300-\u036f]/g, "");
   s = s.replace(/[^0-9a-zA-Z_]/g, "_").replace(/_+/g, "_").replace(/^_+|_+$/g, "");
   if (!s) s = "var";
   if (/^[0-9]/.test(s)) s = "v_" + s;
@@ -728,6 +746,7 @@ async function iniciar() {
     py.FS.writeFile("/mcrisk/" + f, await r.text());
   }
   py.runPython("import sys; sys.path.insert(0, '/')");
+  conferirManifesto();
   py.runPython(COLA);
   CATALOGO = JSON.parse(py.globals.get("catalogo")());
   CAND_AJUSTE = JSON.parse(py.globals.get("catalogo_ajuste")());
@@ -736,6 +755,34 @@ async function iniciar() {
   $("app").classList.remove("oculto");
   $("abas").classList.remove("oculto");
   addVar();
+}
+
+// `mcrisk/__init__.py` importa o pacote inteiro de uma vez. Quando PY_ARQUIVOS
+// esquece um modulo, o Python nao diz "faltou o arquivo X" — diz "cannot import
+// name 'X' from partially initialized module 'mcrisk' (most likely due to a
+// circular import)", apontando para uma causa que nao existe e mandando quem le
+// procurar um ciclo de importacao inexistente. Conferimos antes de importar,
+// para que a tela nomeie o arquivo que falta.
+function conferirManifesto() {
+  const faltando = py.runPython(`
+import os
+_src = open('/mcrisk/__init__.py').read()
+_a = _src.find('from . import (')
+_b = _src.find(')', _a)
+_itens = []
+for _l in (_src[_a + 15:_b] if _a >= 0 else '').splitlines():
+    _itens.extend(_l.split('#')[0].split(','))
+_esperados = set(x.strip() for x in _itens if x.strip().isidentifier())
+_presentes = set(f[:-3] for f in os.listdir('/mcrisk') if f.endswith('.py'))
+','.join(sorted(_esperados - _presentes))
+`);
+  if (faltando) {
+    const arquivos = faltando.split(",").map(m => "mcrisk/" + m + ".py").join(", ");
+    throw new Error(
+      "o pacote mcrisk chegou incompleto: falta " + arquivos + ". A lista " +
+      "PY_ARQUIVOS em index.html esta desatualizada em relacao ao pacote."
+    );
+  }
 }
 
 // ---------------------------------------------------------------- variaveis
